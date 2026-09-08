@@ -31,6 +31,13 @@ export type {
   HerdrAgentKind,
   HerdrAgentStatus,
 } from "./herdr-service.js";
+export {
+  PortlessService,
+  aliasName,
+  toHostLabel,
+  appUrl,
+} from "./portless-service.js";
+export type { PortlessStatus, PortlessRoute } from "./portless-service.js";
 export { TemplateService } from "./template-service.js";
 export type { ProjectInspection } from "./template-service.js";
 export { LinearService } from "./linear-service.js";
