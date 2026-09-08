@@ -14,17 +14,29 @@ devflow provision     # give this checkout ports, a database, .env files
 devflow run           # dev servers, in the foreground
 ```
 
+## Install
+
+```bash
+npm install -g devflow-cli     # the usual way; gives you the `devflow` binary
+npx devflow-cli doctor         # try it without installing
+npm install -g github:leoleducq/devflow   # straight from git
+```
+
+Installing runs `prisma generate`, which builds the query engine for your
+platform — so the install needs network access the first time. Check the result
+with `devflow doctor`.
+
 ## Why
 
-[herdr](https://herdr.dev) is a terminal multiplexer for coding agents, and it
-owns git worktrees: one workspace per branch, agents working in parallel. What
-it does not do is make those worktrees *runnable*. Five agents on five branches
-want five databases, fifteen free ports, and fifteen `.env` files that agree
-with each other.
+A branch gets a worktree in a second. What it does not get is a database of its
+own, free ports, `.env` files that point at those ports, or a running dev
+server. So a second branch collides with the first: same port, same database,
+same `.env`.
 
-That is DevFlow's job. **A herdr workspace on a worktree IS an environment.**
-It works fine without herdr too — `devflow provision` on any checkout does the
-same thing.
+DevFlow gives each worktree its own. **An environment is a git worktree that
+DevFlow has provisioned** — a Postgres container, allocated ports, generated
+`.env` files and dev servers, isolated from every other branch. Run five
+branches at once and nothing overlaps.
 
 ## LITE by default
 
@@ -46,15 +58,17 @@ read code does not start ten Postgres containers.
 ## What an environment gets
 
 - **A Postgres container of its own**, seeded from your main database
-  (`COPY_MAIN`), from your migrations (`FRESH_MIGRATE`), or from a dump
-  (`SNAPSHOT`).
+  (`COPY_MAIN`, needs `--source-database-url`), from your Prisma migrations
+  (`FRESH_MIGRATE`), or from a dump (`SNAPSHOT`). A project with neither a
+  source database nor a Prisma schema gets an empty database, which is often
+  exactly right.
 - **Allocated ports**, one per app, out of a configurable range.
 - **Generated `.env` files**: every `.env` in the main checkout is copied with
   the database URL swapped and every `localhost:<original port>` rewritten to
   this environment's port — so `NEXT_PUBLIC_API_URL`, CORS lists and callbacks
   all point at the right place.
-- **Dev servers**, run in the foreground with their output interleaved, so a
-  herdr pane can keep them alive and `Ctrl+C` stops them all.
+- **Dev servers**, run in the foreground with their output interleaved, so one
+  terminal shows every app and `Ctrl+C` stops them all.
 
 ## Commands
 
@@ -80,15 +94,17 @@ devflow studio <env>               # Prisma Studio against its database
 devflow kill-zombies [--dry-run]   # orphaned next/turbo/tsx/vite processes
 ```
 
-`devflow create <project> <branch>` also creates the worktree itself, for use
-without herdr.
+`devflow provision` adopts a worktree you already made (`git worktree add …`),
+and `--lite` registers it without provisioning anything.
+`devflow create <project> <branch>` does the whole thing at once: it cuts the
+branch, creates the worktree and provisions it FULL.
 
 ### Projects
 
 ```bash
 devflow project list [--json]
 devflow project get <name>                  # every setting, readable
-devflow project set <name> --<field> <val>  # change any of them
+devflow project set <name> --<flag> <val>   # change any of them (see the table below)
 devflow project inspect <name> [--apply]    # re-detect apps, ports, dev commands
 devflow project linear <name>               # connect Linear, pick the team from a list
 devflow project issues <name> [--json]      # open issues, with their branch names
@@ -138,7 +154,8 @@ devflow activate [env]         # choose which environment they reach
 devflow activate --none        # forward nowhere
 ```
 
-With the herdr plugin linked, `activate` follows the workspace you focus.
+`devflow activate` with no argument targets the environment of the current
+checkout.
 
 ## Linear
 
@@ -147,10 +164,13 @@ devflow project linear myapp     # asks for an API key, lists your teams, saves 
 devflow project issues myapp     # PROJ-123  Fix the thing  leo/proj-123-fix-the-thing
 ```
 
-The branch names come from Linear, so `herdr worktree create --branch <that>`
-gets you a worktree whose branch Linear will link to the issue by itself.
+The branch names come from Linear, so `devflow create myapp <that branch>` gets
+you an environment whose branch Linear will link to the issue by itself.
 
-## herdr integration
+## herdr integration (optional)
+
+DevFlow works on its own; this section is only for users of
+[herdr](https://herdr.dev), a terminal multiplexer that owns git worktrees.
 
 ```bash
 herdr plugin link $(npm root -g)/devflow-cli/herdr-plugin.toml
@@ -161,11 +181,20 @@ That gives you: a workspace per project, DevFlow status and ports as sidebar
 tokens, new worktrees provisioned LITE automatically, environments stopped when
 a workspace closes and started when it reopens, `devflow teardown` before a
 worktree is removed, plus popup pickers for Linear issues and for destroying
-environments.
+environments. With the plugin linked, `devflow activate` follows the workspace
+you focus.
 
-`devflow herdr sync` also installs the agent skill into `~/.claude/skills/`,
-`~/.pi/agent/skills/` and `~/.codex/skills/` for whichever of those exist.
-`devflow skill` prints it to stdout.
+## The agent skill
+
+`devflow skill` prints a SKILL.md describing DevFlow to a coding agent. Install
+it where your agent reads skills:
+
+```bash
+mkdir -p ~/.claude/skills/devflow && devflow skill > ~/.claude/skills/devflow/SKILL.md
+```
+
+`devflow herdr sync` does this for `~/.claude/skills/`, `~/.pi/agent/skills/`
+and `~/.codex/skills/`, for whichever of those exist.
 
 ## Where DevFlow keeps its state
 
@@ -184,9 +213,12 @@ Postgres containers, one per environment.
 - Node.js 20+
 - git
 - Docker, for environment databases (LITE environments work without it)
-- pnpm, to install dependencies inside worktrees
-- optional: [herdr](https://herdr.dev), `lazysql` for `devflow db`, `gh` to
-  create an environment from a pull request
+- pnpm — DevFlow installs worktree dependencies and starts dev servers with it,
+  so a FULL environment needs it on PATH. `--skip-install` lets you install
+  them yourself, but the dev servers still shell out to `pnpm`.
+- optional: [herdr](https://herdr.dev), `lazysql` for `devflow db` (`--url`
+  works without it), `gh` to create an environment from a pull request, `psql`
+  to query an environment's database by hand
 
 `devflow doctor` tells you which of these are missing.
 
