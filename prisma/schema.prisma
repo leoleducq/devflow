@@ -41,6 +41,10 @@ model Project {
   /// proxy and the localhost port rewriting in generated .env files.
   appPorts          String?
 
+  /// Give each app a stable named HTTPS URL through portless instead of a
+  /// bare localhost port. Off by default: it needs portless installed.
+  portless          Boolean @default(false)
+
   linearApiKey        String?
   linearTeamId        String?
   linearProjectId     String?
