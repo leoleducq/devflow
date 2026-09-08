@@ -1,7 +1,11 @@
 import { Command } from "commander";
 import { colors } from "../lib/colors.js";
 import * as prompts from "../lib/interactive.js";
-import { LinearService, TemplateService } from "../services/index.js";
+import {
+  GitHubService,
+  LinearService,
+  TemplateService,
+} from "../services/index.js";
 import { prisma, parseJsonArray } from "../db/index.js";
 import {
   PROJECT_FIELDS,
@@ -27,6 +31,14 @@ import { DevflowError } from "../lib/errors.js";
 export const projectCommand = new Command()
   .name("project")
   .description("Manage projects");
+
+/** The project a subcommand names, or a coded failure telling the user so. */
+const requireProject = async (name: string) => {
+  const project = await prisma.project.findUnique({ where: { name } });
+  if (!project)
+    throw new DevflowError("PROJECT_NOT_FOUND", `Project '${name}' not found`);
+  return project;
+};
 
 const addCommand = projectCommand
   .command("add")
@@ -512,6 +524,167 @@ projectCommand
       await prisma.project.delete({ where: { name } });
       if (options.json) printJson({ project: name, removed: true });
       else console.log(`${colors.green("✔")} Project '${name}' removed`);
+    } catch (error) {
+      failCommand(error, options.json);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+/**
+ * `devflow project prs`: the open pull requests an environment could be
+ * created for. The number it prints is what `devflow create <project> --pr`
+ * takes, which is the only reason this list exists in a CLI.
+ */
+projectCommand
+  .command("prs")
+  .alias("pull-requests")
+  .description("List open pull requests of a project (needs gh)")
+  .argument("<name>", "Project name")
+  .option("--limit <n>", "Maximum pull requests to list", "50")
+  .option("--json", "Machine-readable output")
+  .action(async (name: string, options) => {
+    try {
+      const project = await requireProject(name);
+      const limit = Number(options.limit);
+      if (!Number.isInteger(limit) || limit < 1) {
+        throw new DevflowError(
+          "INVALID_ARGUMENT",
+          `--limit expects a positive integer, got '${options.limit}'`,
+        );
+      }
+
+      const prs = await new GitHubService().listPullRequests(
+        project.path,
+        limit,
+      );
+
+      // Which ones already have an environment: the answer to "should I
+      // create this or switch to it", and the reason the desktop list was
+      // useful at all.
+      const existing = new Set(
+        (
+          await prisma.environment.findMany({
+            where: { projectId: project.id, prNumber: { not: null } },
+            select: { prNumber: true },
+          })
+        ).map(env => env.prNumber),
+      );
+
+      if (options.json) {
+        printJson(
+          prs.map(pr => ({ ...pr, hasEnvironment: existing.has(pr.number) })),
+        );
+        return;
+      }
+
+      if (prs.length === 0) {
+        console.log(colors.yellow(`No open pull requests in ${project.name}`));
+        return;
+      }
+
+      console.log();
+      printTable(
+        prs.map(pr => [
+          colors.bold(`#${pr.number}`),
+          pr.title,
+          colors.dim(pr.branch),
+          colors.dim(pr.author),
+          existing.has(pr.number)
+            ? colors.green("env")
+            : pr.isDraft
+              ? colors.dim("draft")
+              : "",
+        ]),
+        {
+          columns: [
+            { header: "PR" },
+            { header: "TITLE" },
+            { header: "BRANCH" },
+            { header: "AUTHOR" },
+            { header: "" },
+          ],
+        },
+      );
+      console.log();
+      console.log(
+        colors.dim("Create an environment for one with:"),
+        colors.white(`devflow create ${project.name} --pr <number>`),
+      );
+    } catch (error) {
+      failCommand(error, options.json);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+/**
+ * `devflow project branches`: the local branches of a project's checkout,
+ * newest commit first. The other half of "what can I create an environment
+ * for" — a branch that already exists is created without cutting a new one.
+ */
+projectCommand
+  .command("branches")
+  .description("List local branches of a project's checkout")
+  .argument("<name>", "Project name")
+  .option("--limit <n>", "Maximum branches to list", "30")
+  .option("--json", "Machine-readable output")
+  .action(async (name: string, options) => {
+    try {
+      const project = await requireProject(name);
+      const limit = Number(options.limit);
+      if (!Number.isInteger(limit) || limit < 1) {
+        throw new DevflowError(
+          "INVALID_ARGUMENT",
+          `--limit expects a positive integer, got '${options.limit}'`,
+        );
+      }
+
+      const branches = (
+        await new GitHubService().listBranches(project.path)
+      ).slice(0, limit);
+
+      const withEnvironments = new Set(
+        (
+          await prisma.environment.findMany({
+            where: { projectId: project.id },
+            select: { branch: true },
+          })
+        ).map(env => env.branch),
+      );
+
+      if (options.json) {
+        printJson(
+          branches.map(branch => ({
+            ...branch,
+            hasEnvironment: withEnvironments.has(branch.name),
+          })),
+        );
+        return;
+      }
+
+      if (branches.length === 0) {
+        console.log(colors.yellow(`No branches in ${project.path}`));
+        return;
+      }
+
+      console.log();
+      printTable(
+        branches.map(branch => [
+          branch.isCurrent ? colors.green("*") : " ",
+          colors.bold(branch.name),
+          colors.dim(branch.lastCommitDate.slice(0, 10)),
+          withEnvironments.has(branch.name) ? colors.green("env") : "",
+        ]),
+        {
+          columns: [
+            { header: "" },
+            { header: "BRANCH" },
+            { header: "LAST COMMIT" },
+            { header: "" },
+          ],
+        },
+      );
     } catch (error) {
       failCommand(error, options.json);
     } finally {
