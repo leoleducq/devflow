@@ -1,7 +1,6 @@
 import { Command } from "commander";
-import chalk from "chalk";
-import ora from "ora";
-import inquirer from "inquirer";
+import { colors } from "../lib/colors.js";
+import * as prompts from "../lib/interactive.js";
 import { LinearService, TemplateService } from "../services/index.js";
 import { prisma, parseJsonArray } from "../db/index.js";
 import {
@@ -13,42 +12,64 @@ import type { ProjectField } from "../lib/project-fields.js";
 import {
   registerProject,
   inspectForRegistration,
+  registrationAnswers,
+  REGISTRATION_FLAGS,
 } from "../lib/register-project.js";
-import { failCommand, printJson, redact } from "../lib/json-output.js";
+import {
+  failCommand,
+  printJson,
+  redact,
+  startSpinner,
+} from "../lib/json-output.js";
+import { printTable, printPairs } from "../lib/table.js";
 import { DevflowError } from "../lib/errors.js";
 
 export const projectCommand = new Command()
   .name("project")
   .description("Manage projects");
 
-projectCommand
+const addCommand = projectCommand
   .command("add")
   .description("Register a project, detecting its apps, ports and dev commands")
   .argument("[path]", "Path to the project directory (default: cwd)")
   .option("-y, --yes", "Accept everything detected without prompting")
-  .action(async (pathArg: string | undefined, options) => {
-    const spinner = ora("Inspecting project…").start();
-    try {
-      const inspection = await inspectForRegistration(pathArg ?? process.cwd());
-      spinner.stop();
-      const project = await registerProject(inspection, {
-        interactive: !options.yes,
-      });
+  .option("--json", "Machine-readable output");
 
-      console.log();
-      console.log(
-        chalk.green(`Project ${chalk.bold(project.name)} registered`),
-      );
-      console.log(
-        chalk.dim(`Inspect it with: devflow project get ${project.name}`),
-      );
-    } catch (error) {
-      spinner.stop();
-      failCommand(error);
-    } finally {
-      await prisma.$disconnect();
+// Every question the wizard asks also has a flag, so the whole registration
+// works with no terminal attached.
+for (const [flag, description] of REGISTRATION_FLAGS) {
+  addCommand.option(flag, description);
+}
+
+addCommand.action(async (pathArg: string | undefined, options) => {
+  const spinner = startSpinner("Inspecting project…", options.json);
+  try {
+    const inspection = await inspectForRegistration(pathArg ?? process.cwd());
+    spinner.stop();
+    const project = await registerProject(inspection, {
+      interactive: !options.yes,
+      json: options.json,
+      answers: registrationAnswers(options),
+    });
+
+    if (options.json) {
+      printJson(redact(project));
+      return;
     }
-  });
+    console.log();
+    console.log(
+      `${colors.green("✔")} Project ${colors.bold(project.name)} registered`,
+    );
+    console.log(
+      colors.dim(`Inspect it with: devflow project get ${project.name}`),
+    );
+  } catch (error) {
+    spinner.stop();
+    failCommand(error, options.json);
+  } finally {
+    await prisma.$disconnect();
+  }
+});
 
 projectCommand
   .command("list")
@@ -67,29 +88,36 @@ projectCommand
       }
 
       if (projects.length === 0) {
-        console.log(chalk.yellow("No projects registered"));
+        console.log(colors.yellow("No projects registered"));
         console.log(
-          chalk.dim("Register one with:"),
-          chalk.white("devflow init"),
+          colors.dim("Register one with:"),
+          colors.white("devflow init"),
         );
         return;
       }
 
       console.log();
-      console.log(chalk.bold.underline("Registered Projects"));
+      printTable(
+        projects.map(project => {
+          const apps = parseJsonArray(project.apps);
+          return [
+            colors.bold(project.name),
+            colors.dim(project.type),
+            apps.length > 0 ? apps.join(", ") : colors.dim("-"),
+            colors.dim(project.path),
+          ];
+        }),
+        {
+          columns: [
+            { header: "NAME" },
+            { header: "TYPE" },
+            { header: "APPS" },
+            { header: "PATH" },
+          ],
+        },
+      );
       console.log();
-
-      for (const project of projects) {
-        console.log(chalk.bold(project.name), chalk.dim(`(${project.type})`));
-        console.log(chalk.dim("  Path:"), project.path);
-        const projectApps = parseJsonArray(project.apps);
-        if (projectApps.length > 0) {
-          console.log(chalk.dim("  Apps:"), projectApps.join(", "));
-        }
-        console.log();
-      }
-
-      console.log(chalk.dim(`Total: ${projects.length} project(s)`));
+      console.log(colors.dim(`${projects.length} project(s)`));
     } catch (error) {
       failCommand(error, options.json);
     } finally {
@@ -116,21 +144,20 @@ projectCommand
         return;
       }
 
-      const rows = describeProject(project);
-      const width = Math.max(...rows.map(([field]) => field.length));
       console.log();
-      console.log(chalk.bold.underline(project.name));
+      console.log(colors.bold.underline(project.name));
       console.log();
-      for (const [field, value] of rows) {
-        console.log(
-          `${chalk.bold(field.padEnd(width))}  ${value === "-" ? chalk.dim("-") : value}`,
-        );
-      }
+      printPairs(
+        describeProject(project).map(([field, value]) => [
+          field,
+          value === "-" ? colors.dim("-") : value,
+        ]),
+      );
       console.log();
       // The flags are kebab-case while the fields above print camelCase, so
       // point at `set --help` rather than inviting `--dbEnvVarName`.
       console.log(
-        chalk.dim(
+        colors.dim(
           `Change one with: devflow project set ${project.name} --<flag> <value>   (flags: devflow project set --help)`,
         ),
       );
@@ -165,7 +192,7 @@ setCommand.action(async (name: string, options: Record<string, unknown>) => {
 
     for (const field of Object.keys(data)) {
       console.log(
-        `${chalk.green("✔")} ${chalk.bold(field)} updated on ${updated.name}`,
+        `${colors.green("✔")} ${colors.bold(field)} updated on ${updated.name}`,
       );
     }
   } catch (error) {
@@ -212,20 +239,15 @@ projectCommand
           ["dbEnvVarName", inspection.dbEnvVarName ?? ""],
           ["dbDockerImage", inspection.dbDockerImage ?? ""],
         ];
-        const width = Math.max(...rows.map(([label]) => label.length));
         console.log();
-        for (const [label, value] of rows) {
-          console.log(
-            `${chalk.bold(label.padEnd(width))}  ${value || chalk.dim("-")}`,
-          );
-        }
+        printPairs(rows.map(([label, value]) => [label, value || colors.dim("-")]));
         console.log();
       }
 
       if (!options.apply) {
         if (options.json) printJson({ project: project.name, ...inspection });
         else
-          console.log(chalk.dim("Pass --apply to save these onto the project"));
+          console.log(colors.dim("Pass --apply to save these onto the project"));
         return;
       }
 
@@ -244,7 +266,7 @@ projectCommand
         },
       });
       if (options.json) printJson({ project: project.name, ...inspection });
-      else console.log(chalk.green(`${project.name} updated`));
+      else console.log(colors.green(`${project.name} updated`));
     } catch (error) {
       failCommand(error, options.json);
     } finally {
@@ -252,11 +274,55 @@ projectCommand
     }
   });
 
+/**
+ * Resolve what the user typed for `--team` against the teams the key can see.
+ * A team key (`ENG`), a name and a UUID all work, because an agent writing a
+ * config file has whichever of the three it happened to be given.
+ */
+const resolveTeam = (
+  teams: Array<{ id: string; name: string; key: string }>,
+  wanted: string,
+): { id: string; name: string; key: string } => {
+  const needle = wanted.trim().toLowerCase();
+  const match = teams.find(
+    team =>
+      team.id.toLowerCase() === needle ||
+      team.key.toLowerCase() === needle ||
+      team.name.toLowerCase() === needle,
+  );
+  if (match) return match;
+  throw new DevflowError(
+    "INVALID_ARGUMENT",
+    `No Linear team matches '${wanted}'. This key sees: ${teams
+      .map(team => `${team.key} (${team.name})`)
+      .join(", ")}`,
+  );
+};
+
+/**
+ * `devflow project linear`: connect a project to Linear.
+ *
+ * Every question it can ask has a flag behind it, so an agent can configure
+ * Linear end to end with no terminal: `--api-key` and `--team` are all it
+ * needs, and `--json` reports what was stored. Without them, and only on a
+ * real terminal, it falls back to asking.
+ */
 projectCommand
   .command("linear")
   .description("Connect a project to Linear, picking the team from a list")
   .argument("<name>", "Project name")
   .option("--api-key <key>", "Linear API key (asked for when omitted)")
+  .option("--team <id-or-key>", "Linear team by id, key (ENG) or name")
+  .option("--project <id-or-name>", "Restrict issues to one Linear project")
+  .option("--json", "Machine-readable output")
+  .addHelpText(
+    "after",
+    `
+Examples:
+  $ devflow project linear myapp                       ask for key and team
+  $ devflow project linear myapp --api-key lin_api_… --team ENG
+  $ devflow project linear myapp --team ENG --project "Q3 roadmap" --json`,
+  )
   .action(async (name: string, options) => {
     try {
       const project = await prisma.project.findUnique({ where: { name } });
@@ -266,61 +332,96 @@ projectCommand
           `Project '${name}' not found`,
         );
 
-      const apiKey: string =
-        options.apiKey ??
-        project.linearApiKey ??
-        (
-          await inquirer.prompt<{ apiKey: string }>([
-            {
-              type: "password",
-              name: "apiKey",
-              mask: "*",
-              message:
-                "Linear API key (Settings → Security & access → Personal API keys):",
-            },
-          ])
-        ).apiKey;
+      // A key already on the project counts as provided: reconnecting to
+      // pick a different team should not ask for the key again.
+      const apiKey = (
+        await prompts.askFor<string>({
+          provided: options.apiKey ?? project.linearApiKey ?? undefined,
+          what: "A Linear API key",
+          flag: "--api-key",
+          context: { json: options.json },
+          ask: () =>
+            prompts.password(
+              "Linear API key (Settings → Security & access → Personal API keys)",
+            ),
+        })
+      ).trim();
+      if (!apiKey) throw new Error("An API key is required");
 
-      if (!apiKey.trim()) throw new Error("An API key is required");
-
-      const spinner = ora("Loading Linear teams…").start();
-      const linear = new LinearService(apiKey.trim());
+      const spinner = startSpinner("Loading Linear teams…", options.json);
+      const linear = new LinearService(apiKey);
       const teams = await linear.listTeams();
       spinner.stop();
-
       if (teams.length === 0) throw new Error("This key sees no Linear team");
 
-      const { teamId } = await inquirer.prompt<{ teamId: string }>([
-        {
-          type: "list",
-          name: "teamId",
-          message: "Team the issues come from:",
-          choices: teams.map(team => ({
-            name: `${team.key} — ${team.name}`,
-            value: team.id,
-          })),
-          default: project.linearTeamId ?? undefined,
-        },
-      ]);
+      const teamId = options.team
+        ? resolveTeam(teams, String(options.team)).id
+        : await prompts.askFor<string>({
+            provided: undefined,
+            what: "A Linear team",
+            flag: "--team <id-or-key>",
+            context: { json: options.json },
+            ask: () =>
+              prompts.select({
+                message: "Team the issues come from",
+                options: teams.map(team => ({
+                  value: team.id,
+                  label: `${team.key} — ${team.name}`,
+                })),
+                initialValue: project.linearTeamId ?? teams[0]?.id,
+              }),
+          });
+
+      // --project is optional everywhere: an unset filter means "every issue
+      // of the team", which is the sensible default rather than a question.
+      let linearProjectId: string | null = project.linearProjectId;
+      if (options.project) {
+        const wanted = String(options.project).trim().toLowerCase();
+        const projects = await linear.listProjects(teamId);
+        const match = projects.find(
+          p => p.id.toLowerCase() === wanted || p.name.toLowerCase() === wanted,
+        );
+        if (!match) {
+          throw new DevflowError(
+            "INVALID_ARGUMENT",
+            `No Linear project matches '${options.project}' in this team.${
+              projects.length > 0
+                ? ` Known: ${projects.map(p => p.name).join(", ")}`
+                : " This team has no projects."
+            }`,
+          );
+        }
+        linearProjectId = match.id;
+      }
 
       await prisma.project.update({
         where: { id: project.id },
-        data: { linearApiKey: apiKey.trim(), linearTeamId: teamId },
+        data: { linearApiKey: apiKey, linearTeamId: teamId, linearProjectId },
       });
 
       const team = teams.find(t => t.id === teamId);
+      if (options.json) {
+        printJson({
+          project: project.name,
+          linearTeamId: teamId,
+          linearTeamKey: team?.key ?? null,
+          linearProjectId,
+          connected: true,
+        });
+        return;
+      }
       console.log(
-        chalk.green(
-          `${project.name} is connected to Linear team ${chalk.bold(team?.key ?? teamId)}`,
-        ),
+        `${colors.green("✔")} ${project.name} is connected to Linear team ${colors.bold(
+          team?.key ?? teamId,
+        )}`,
       );
       console.log(
-        chalk.dim(
+        colors.dim(
           `List its issues with: devflow project issues ${project.name}`,
         ),
       );
     } catch (error) {
-      failCommand(error);
+      failCommand(error, options.json);
     } finally {
       await prisma.$disconnect();
     }
@@ -362,7 +463,7 @@ projectCommand
       }
       for (const issue of issues) {
         console.log(
-          `${chalk.bold(issue.identifier)}  ${issue.title}  ${chalk.dim(issue.branchName)}`,
+          `${colors.bold(issue.identifier)}  ${issue.title}  ${colors.dim(issue.branchName)}`,
         );
       }
     } catch (error) {
@@ -378,6 +479,7 @@ projectCommand
   .description("Unregister a project")
   .argument("<name>", "Project name")
   .option("-y, --yes", "Skip confirmation")
+  .option("--json", "Machine-readable output")
   .action(async (name: string, options) => {
     try {
       const project = await prisma.project.findUnique({ where: { name } });
@@ -387,25 +489,31 @@ projectCommand
           `Project '${name}' not found`,
         );
 
+      // Unregistering is cheap to undo but easy to do by accident, so it is
+      // confirmed — and a caller that cannot be asked says --yes instead of
+      // waiting on a question it will never receive.
       if (!options.yes) {
-        const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
-          {
-            type: "confirm",
-            name: "confirm",
-            message: `Remove project ${chalk.cyan(name)}?`,
-            default: false,
-          },
-        ]);
-        if (!confirm) {
-          console.log(chalk.yellow("Cancelled"));
+        if (!prompts.canPrompt({ json: options.json })) {
+          throw new DevflowError(
+            "CONFIRMATION_REQUIRED",
+            `Removing project '${name}' needs confirmation; pass --yes`,
+          );
+        }
+        const confirmed = await prompts.confirm({
+          message: `Remove project ${name}?`,
+          initialValue: false,
+        });
+        if (!confirmed) {
+          console.log(colors.yellow("Cancelled"));
           return;
         }
       }
 
       await prisma.project.delete({ where: { name } });
-      console.log(chalk.green(`Project '${name}' removed`));
+      if (options.json) printJson({ project: name, removed: true });
+      else console.log(`${colors.green("✔")} Project '${name}' removed`);
     } catch (error) {
-      failCommand(error);
+      failCommand(error, options.json);
     } finally {
       await prisma.$disconnect();
     }

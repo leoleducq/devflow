@@ -60,6 +60,25 @@ export class LinearService {
     return teams.nodes.map(t => ({ id: t.id, name: t.name, key: t.key }));
   }
 
+  /**
+   * The team's projects, so `devflow project linear --project` can accept a
+   * name a human would recognise rather than only a UUID.
+   */
+  async listProjects(
+    teamId: string,
+  ): Promise<{ id: string; name: string }[]> {
+    const projects = await this.client.projects({ first: 250 });
+    const nodes = await Promise.all(
+      projects.nodes.map(async project => {
+        const teams = await project.teams();
+        return teams.nodes.some(team => team.id === teamId)
+          ? { id: project.id, name: project.name }
+          : null;
+      }),
+    );
+    return nodes.filter((p): p is { id: string; name: string } => p !== null);
+  }
+
   async listLabels(
     teamId: string,
   ): Promise<{ id: string; name: string; color: string }[]> {
