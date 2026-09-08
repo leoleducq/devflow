@@ -78,8 +78,10 @@ function extractPortFromEnvExample(
 }
 
 function extractDbEnvVarName(content: string): string | null {
+  // The prefix is optional: plain `DATABASE_URL=` is by far the common case,
+  // while `DIRECT_DATABASE_URL=` and friends keep working.
   const candidates = content.match(
-    /^([A-Z][A-Z0-9_]*(?:DATABASE_URL|DB_URL))\s*=/gm,
+    /^((?:[A-Z][A-Z0-9_]*_)?(?:DATABASE_URL|DB_URL))\s*=/gm,
   );
   if (!candidates?.length) return null;
   const first = candidates[0]!.match(/^([A-Z][A-Z0-9_]*)/);
