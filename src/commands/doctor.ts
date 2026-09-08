@@ -5,6 +5,7 @@ import fs from "fs-extra";
 import { prisma, databaseFile, devflowHome } from "../db/index.js";
 import { checkTool, which } from "../lib/checks.js";
 import type { Check, CheckLevel } from "../lib/checks.js";
+import { printJson } from "../lib/json-output.js";
 
 const MIN_NODE_MAJOR = 20;
 
@@ -238,7 +239,10 @@ export const doctorCommand = new Command()
     await prisma.$disconnect();
 
     if (options.json) {
-      console.log(JSON.stringify(checks, null, 2));
+      printJson({
+        ok: checks.every(c => c.level !== "fail"),
+        checks,
+      });
     } else {
       const width = Math.max(...checks.map(c => c.name.length));
       console.log();

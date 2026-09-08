@@ -7,6 +7,7 @@ import {
   SEED_STRATEGIES,
 } from "../services/config-service.js";
 import type { ConfigField, ConfigUpdate } from "../services/config-service.js";
+import { failCommand, printJson } from "../lib/json-output.js";
 
 /** Fields stored as numbers; everything else in CONFIG_FIELDS is a string. */
 const NUMERIC_FIELDS = new Set<ConfigField>([
@@ -51,7 +52,8 @@ configCommand
             `Unknown setting '${field}'. Known settings: ${CONFIG_FIELDS.join(", ")}`,
           );
         }
-        console.log(String(config[field]));
+        if (options.json) printJson({ [field]: config[field] });
+        else console.log(String(config[field]));
         return;
       }
 
@@ -60,7 +62,7 @@ configCommand
       );
 
       if (options.json) {
-        console.log(JSON.stringify(values, null, 2));
+        printJson(values);
         return;
       }
 
@@ -69,10 +71,7 @@ configCommand
         console.log(`${chalk.bold(name.padEnd(width))}  ${String(value)}`);
       }
     } catch (error) {
-      console.error(
-        chalk.red(error instanceof Error ? error.message : String(error)),
-      );
-      process.exit(1);
+      failCommand(error, options.json);
     } finally {
       await prisma.$disconnect();
     }
@@ -102,10 +101,7 @@ configCommand
         console.log(chalk.dim(`Valid values: ${SEED_STRATEGIES.join(", ")}`));
       }
     } catch (error) {
-      console.error(
-        chalk.red(error instanceof Error ? error.message : String(error)),
-      );
-      process.exit(1);
+      failCommand(error);
     } finally {
       await prisma.$disconnect();
     }

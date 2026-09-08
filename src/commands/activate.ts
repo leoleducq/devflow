@@ -3,6 +3,7 @@ import chalk from "chalk";
 import { prisma } from "../db/index.js";
 import { ConfigService } from "../services/index.js";
 import { resolveEnvironment } from "../lib/resolve-environment.js";
+import { failCommand, printJson } from "../lib/json-output.js";
 
 /**
  * `devflow activate`: choose the environment the original app ports forward
@@ -20,6 +21,7 @@ export const activateCommand = new Command()
   .option("--cwd <path>", "Resolve the environment from this checkout")
   .option("--none", "Deactivate: proxies forward nowhere")
   .option("--quiet", "Exit silently when --cwd is not an environment")
+  .option("--json", "Machine-readable output")
   .action(async (envName: string | undefined, options) => {
     try {
       const config = await new ConfigService(prisma).getOrCreateConfig();
@@ -28,13 +30,15 @@ export const activateCommand = new Command()
           where: { id: config.id },
           data: { activeEnvironmentId: null },
         });
-        console.log(chalk.green("No active environment"));
+        if (options.json) printJson({ active: null });
+        else console.log(chalk.green("No active environment"));
         return;
       }
 
       const env = await resolveEnvironment({ name: envName, cwd: options.cwd });
       if (config.activeEnvironmentId === env.id) {
-        if (!options.quiet)
+        if (options.json) printJson({ active: env.name, changed: false });
+        else if (!options.quiet)
           console.log(chalk.dim(`${env.name} already active`));
         return;
       }
@@ -42,7 +46,9 @@ export const activateCommand = new Command()
         where: { id: config.id },
         data: { activeEnvironmentId: env.id },
       });
-      if (!options.quiet) {
+      if (options.json) {
+        printJson({ active: env.name, changed: true });
+      } else if (!options.quiet) {
         console.log(
           chalk.green(`Environment ${chalk.bold(env.name)} is active`),
         );
@@ -52,10 +58,7 @@ export const activateCommand = new Command()
       }
     } catch (error) {
       if (options.quiet) return;
-      console.error(
-        chalk.red(error instanceof Error ? error.message : String(error)),
-      );
-      process.exit(1);
+      failCommand(error, options.json);
     } finally {
       await prisma.$disconnect();
     }

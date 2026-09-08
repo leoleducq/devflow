@@ -1,8 +1,9 @@
 import { Command } from "commander";
 import chalk from "chalk";
-import ora from "ora";
 import { prisma } from "../db/index.js";
-import { EnvironmentService } from "../services/index.js";
+import { EnvironmentService, sortedPorts } from "../services/index.js";
+import { failCommand, printJson, quietSpinner } from "../lib/json-output.js";
+import { DevflowError } from "../lib/errors.js";
 const SEED_STRATEGY_MAP: Record<string, string> = {
   "copy-main": "COPY_MAIN",
   fresh: "FRESH_MIGRATE",
@@ -22,8 +23,9 @@ export const createCommand = new Command()
     "Database seed strategy (copy-main, fresh, snapshot:name)",
   )
   .option("--skip-install", "Skip installing dependencies")
+  .option("--json", "Machine-readable output")
   .action(async (projectName: string, branch: string, cmdOptions) => {
-    const spinner = ora("Creating environment...").start();
+    const spinner = quietSpinner("Creating environment…", cmdOptions.json);
 
     try {
       const project = await prisma.project.findUnique({
@@ -31,12 +33,10 @@ export const createCommand = new Command()
       });
 
       if (!project) {
-        spinner.fail(
-          chalk.red(
-            `Project '${projectName}' not found. Register it first with: devflow project add`,
-          ),
+        throw new DevflowError(
+          "PROJECT_NOT_FOUND",
+          `Project '${projectName}' not found. Register it first with: devflow project add`,
         );
-        process.exit(1);
       }
 
       const environmentService = new EnvironmentService(prisma);
@@ -60,12 +60,26 @@ export const createCommand = new Command()
 
       // Re-fetch with full relations
       const env = await environmentService.getEnvironment(created.id);
-      if (!env) {
-        spinner.fail(chalk.red("Environment created but could not be fetched"));
-        process.exit(1);
-      }
+      if (!env) throw new Error("Environment created but could not be fetched");
 
       spinner.succeed(chalk.green("Environment created successfully!"));
+
+      if (cmdOptions.json) {
+        printJson({
+          environment: env.name,
+          project: projectName,
+          branch: env.branch,
+          kind: env.kind,
+          status: env.status,
+          worktreePath: env.worktreePath,
+          databaseUrl: env.database?.url ?? null,
+          ports: sortedPorts(env.ports).map(p => ({
+            app: p.appName,
+            port: p.port,
+          })),
+        });
+        return;
+      }
 
       console.log();
       console.log(chalk.bold("Environment:"), chalk.cyan(env.name));
@@ -96,9 +110,8 @@ export const createCommand = new Command()
       );
     } catch (error) {
       spinner.fail(chalk.red("Failed to create environment"));
-      if (error instanceof Error) {
-        console.error(chalk.red(error.message));
-      }
-      process.exit(1);
+      failCommand(error, cmdOptions.json);
+    } finally {
+      await prisma.$disconnect();
     }
   });

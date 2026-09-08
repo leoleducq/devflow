@@ -1,9 +1,13 @@
 import { Command } from "commander";
 import chalk from "chalk";
-import ora from "ora";
 import { prisma } from "../db/index.js";
-import { EnvironmentService, CREATE_ENV_STEPS } from "../services/index.js";
+import {
+  EnvironmentService,
+  CREATE_ENV_STEPS,
+  sortedPorts,
+} from "../services/index.js";
 import type { CreateEnvStepId, CreateEnvProgress } from "../services/index.js";
+import { failCommand, printJson, quietSpinner } from "../lib/json-output.js";
 
 const SEED_STRATEGY_MAP: Record<string, string> = {
   "copy-main": "COPY_MAIN",
@@ -33,9 +37,10 @@ export const provisionCommand = new Command()
     "--lite",
     "Register the checkout only; ports, database and deps come with the first `devflow run`",
   )
+  .option("--json", "Machine-readable output")
   .action(async (path: string | undefined, options) => {
     const worktreePath = path ?? process.cwd();
-    const spinner = ora(`Provisioning ${worktreePath}`).start();
+    const spinner = quietSpinner(`Provisioning ${worktreePath}`, options.json);
 
     try {
       const service = new EnvironmentService(prisma);
@@ -77,7 +82,25 @@ export const provisionCommand = new Command()
         ),
       );
       const full = await service.getEnvironment(env.id);
-      for (const port of full?.ports ?? []) {
+
+      if (options.json) {
+        printJson({
+          environment: env.name,
+          project: full?.project?.name ?? null,
+          branch: env.branch,
+          kind: env.kind,
+          status: env.status,
+          worktreePath: env.worktreePath,
+          databaseUrl: full?.database?.url ?? null,
+          ports: sortedPorts(full?.ports ?? []).map(p => ({
+            app: p.appName,
+            port: p.port,
+          })),
+        });
+        return;
+      }
+
+      for (const port of sortedPorts(full?.ports ?? [])) {
         console.log(
           `  ${chalk.bold(port.appName)}: ${chalk.cyan(`http://localhost:${port.port}`)}`,
         );
@@ -96,8 +119,7 @@ export const provisionCommand = new Command()
       );
     } catch (error) {
       spinner.fail(chalk.red("Provisioning failed"));
-      if (error instanceof Error) console.error(chalk.red(error.message));
-      process.exit(1);
+      failCommand(error, options.json);
     } finally {
       await prisma.$disconnect();
     }

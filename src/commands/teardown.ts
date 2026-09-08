@@ -1,9 +1,9 @@
 import { Command } from "commander";
 import chalk from "chalk";
-import ora from "ora";
 import { prisma } from "../db/index.js";
 import { EnvironmentService } from "../services/index.js";
 import { resolveEnvironment } from "../lib/resolve-environment.js";
+import { failCommand, printJson, quietSpinner } from "../lib/json-output.js";
 
 /**
  * `devflow teardown [path]`: release what `provision` created (processes,
@@ -21,20 +21,24 @@ export const teardownCommand = new Command()
   )
   .option("--name <env-name>", "Target by environment name instead of path")
   .option("--quiet", "Exit silently when the path is not an environment")
+  .option("--json", "Machine-readable output")
   .action(async (path: string | undefined, options) => {
     try {
       const env = await resolveEnvironment({ name: options.name, cwd: path });
-      const spinner = ora(`Tearing down ${env.name}`).start();
+      const spinner = quietSpinner(`Tearing down ${env.name}`, options.json);
       await new EnvironmentService(prisma).teardownEnvironment(env.id);
       spinner.succeed(
         chalk.green(`Environment ${chalk.bold(env.name)} released`),
       );
+      if (options.json)
+        printJson({
+          environment: env.name,
+          worktreePath: env.worktreePath,
+          released: true,
+        });
     } catch (error) {
       if (options.quiet) return;
-      console.error(
-        chalk.red(error instanceof Error ? error.message : String(error)),
-      );
-      process.exit(1);
+      failCommand(error, options.json);
     } finally {
       await prisma.$disconnect();
     }

@@ -2,6 +2,7 @@ import { Command } from "commander";
 import chalk from "chalk";
 import { prisma } from "../db/index.js";
 import { EnvironmentService } from "../services/index.js";
+import { printJson, printJsonError, redact } from "../lib/json-output.js";
 
 export const listCommand = new Command()
   .name("list")
@@ -24,7 +25,7 @@ export const listCommand = new Command()
       const environments = await environmentService.listEnvironments(projectId);
 
       if (options.json) {
-        console.log(JSON.stringify(environments));
+        printJson(redact(environments));
         return;
       }
 
@@ -76,10 +77,13 @@ export const listCommand = new Command()
 
       console.log(chalk.dim(`Total: ${environments.length} environment(s)`));
     } catch (error) {
-      console.error(chalk.red("Failed to list environments"));
-      if (error instanceof Error) {
-        console.error(chalk.red(error.message));
-      }
+      if (options.json) printJsonError(error);
+      else
+        console.error(
+          chalk.red(error instanceof Error ? error.message : String(error)),
+        );
       process.exit(1);
+    } finally {
+      await prisma.$disconnect();
     }
   });

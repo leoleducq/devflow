@@ -14,6 +14,8 @@ import {
   registerProject,
   inspectForRegistration,
 } from "../lib/register-project.js";
+import { failCommand, printJson, redact } from "../lib/json-output.js";
+import { DevflowError } from "../lib/errors.js";
 
 export const projectCommand = new Command()
   .name("project")
@@ -42,10 +44,7 @@ projectCommand
       );
     } catch (error) {
       spinner.stop();
-      console.error(
-        chalk.red(error instanceof Error ? error.message : String(error)),
-      );
-      process.exit(1);
+      failCommand(error);
     } finally {
       await prisma.$disconnect();
     }
@@ -63,7 +62,7 @@ projectCommand
       });
 
       if (options.json) {
-        console.log(JSON.stringify(projects));
+        printJson(redact(projects));
         return;
       }
 
@@ -92,10 +91,7 @@ projectCommand
 
       console.log(chalk.dim(`Total: ${projects.length} project(s)`));
     } catch (error) {
-      console.error(
-        chalk.red(error instanceof Error ? error.message : String(error)),
-      );
-      process.exit(1);
+      failCommand(error, options.json);
     } finally {
       await prisma.$disconnect();
     }
@@ -109,10 +105,14 @@ projectCommand
   .action(async (name: string, options) => {
     try {
       const project = await prisma.project.findUnique({ where: { name } });
-      if (!project) throw new Error(`Project '${name}' not found`);
+      if (!project)
+        throw new DevflowError(
+          "PROJECT_NOT_FOUND",
+          `Project '${name}' not found`,
+        );
 
       if (options.json) {
-        console.log(JSON.stringify(project, null, 2));
+        printJson(redact(project));
         return;
       }
 
@@ -135,10 +135,7 @@ projectCommand
         ),
       );
     } catch (error) {
-      console.error(
-        chalk.red(error instanceof Error ? error.message : String(error)),
-      );
-      process.exit(1);
+      failCommand(error, options.json);
     } finally {
       await prisma.$disconnect();
     }
@@ -172,10 +169,7 @@ setCommand.action(async (name: string, options: Record<string, unknown>) => {
       );
     }
   } catch (error) {
-    console.error(
-      chalk.red(error instanceof Error ? error.message : String(error)),
-    );
-    process.exit(1);
+    failCommand(error);
   } finally {
     await prisma.$disconnect();
   }
@@ -186,43 +180,52 @@ projectCommand
   .description("Re-detect apps, ports and dev commands from a project's files")
   .argument("<name>", "Project name")
   .option("--apply", "Write what was detected back onto the project")
+  .option("--json", "Machine-readable output")
   .action(async (name: string, options) => {
     try {
       const project = await prisma.project.findUnique({ where: { name } });
-      if (!project) throw new Error(`Project '${name}' not found`);
+      if (!project)
+        throw new DevflowError(
+          "PROJECT_NOT_FOUND",
+          `Project '${name}' not found`,
+        );
 
       const inspection = await new TemplateService().inspectProject(
         project.path,
       );
 
-      const rows: Array<[string, string]> = [
-        ["apps", inspection.apps.join(", ")],
-        [
-          "appPorts",
-          Object.entries(inspection.appPorts)
-            .map(([app, port]) => `${app}:${port}`)
-            .join(", "),
-        ],
-        [
-          "devCommands",
-          Object.entries(inspection.devCommands)
-            .map(([app, cmd]) => `${app}=${cmd}`)
-            .join(", "),
-        ],
-        ["dbEnvVarName", inspection.dbEnvVarName ?? ""],
-        ["dbDockerImage", inspection.dbDockerImage ?? ""],
-      ];
-      const width = Math.max(...rows.map(([label]) => label.length));
-      console.log();
-      for (const [label, value] of rows) {
-        console.log(
-          `${chalk.bold(label.padEnd(width))}  ${value || chalk.dim("-")}`,
-        );
+      if (!options.json) {
+        const rows: Array<[string, string]> = [
+          ["apps", inspection.apps.join(", ")],
+          [
+            "appPorts",
+            Object.entries(inspection.appPorts)
+              .map(([app, port]) => `${app}:${port}`)
+              .join(", "),
+          ],
+          [
+            "devCommands",
+            Object.entries(inspection.devCommands)
+              .map(([app, cmd]) => `${app}=${cmd}`)
+              .join(", "),
+          ],
+          ["dbEnvVarName", inspection.dbEnvVarName ?? ""],
+          ["dbDockerImage", inspection.dbDockerImage ?? ""],
+        ];
+        const width = Math.max(...rows.map(([label]) => label.length));
+        console.log();
+        for (const [label, value] of rows) {
+          console.log(
+            `${chalk.bold(label.padEnd(width))}  ${value || chalk.dim("-")}`,
+          );
+        }
+        console.log();
       }
-      console.log();
 
       if (!options.apply) {
-        console.log(chalk.dim("Pass --apply to save these onto the project"));
+        if (options.json) printJson({ project: project.name, ...inspection });
+        else
+          console.log(chalk.dim("Pass --apply to save these onto the project"));
         return;
       }
 
@@ -240,12 +243,10 @@ projectCommand
             : {}),
         },
       });
-      console.log(chalk.green(`${project.name} updated`));
+      if (options.json) printJson({ project: project.name, ...inspection });
+      else console.log(chalk.green(`${project.name} updated`));
     } catch (error) {
-      console.error(
-        chalk.red(error instanceof Error ? error.message : String(error)),
-      );
-      process.exit(1);
+      failCommand(error, options.json);
     } finally {
       await prisma.$disconnect();
     }
@@ -259,7 +260,11 @@ projectCommand
   .action(async (name: string, options) => {
     try {
       const project = await prisma.project.findUnique({ where: { name } });
-      if (!project) throw new Error(`Project '${name}' not found`);
+      if (!project)
+        throw new DevflowError(
+          "PROJECT_NOT_FOUND",
+          `Project '${name}' not found`,
+        );
 
       const apiKey: string =
         options.apiKey ??
@@ -315,10 +320,7 @@ projectCommand
         ),
       );
     } catch (error) {
-      console.error(
-        chalk.red(error instanceof Error ? error.message : String(error)),
-      );
-      process.exit(1);
+      failCommand(error);
     } finally {
       await prisma.$disconnect();
     }
@@ -334,7 +336,11 @@ projectCommand
   .action(async (name: string, options) => {
     try {
       const project = await prisma.project.findUnique({ where: { name } });
-      if (!project) throw new Error(`Project '${name}' not found`);
+      if (!project)
+        throw new DevflowError(
+          "PROJECT_NOT_FOUND",
+          `Project '${name}' not found`,
+        );
       if (!project.linearApiKey || !project.linearTeamId) {
         throw new Error(
           `Linear is not configured for ${name}. Connect it with: devflow project linear ${name}`,
@@ -351,7 +357,7 @@ projectCommand
       });
 
       if (options.json) {
-        console.log(JSON.stringify(issues));
+        printJson(issues);
         return;
       }
       for (const issue of issues) {
@@ -360,10 +366,7 @@ projectCommand
         );
       }
     } catch (error) {
-      console.error(
-        chalk.red(error instanceof Error ? error.message : String(error)),
-      );
-      process.exit(1);
+      failCommand(error, options.json);
     } finally {
       await prisma.$disconnect();
     }
@@ -378,7 +381,11 @@ projectCommand
   .action(async (name: string, options) => {
     try {
       const project = await prisma.project.findUnique({ where: { name } });
-      if (!project) throw new Error(`Project '${name}' not found`);
+      if (!project)
+        throw new DevflowError(
+          "PROJECT_NOT_FOUND",
+          `Project '${name}' not found`,
+        );
 
       if (!options.yes) {
         const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
@@ -398,10 +405,7 @@ projectCommand
       await prisma.project.delete({ where: { name } });
       console.log(chalk.green(`Project '${name}' removed`));
     } catch (error) {
-      console.error(
-        chalk.red(error instanceof Error ? error.message : String(error)),
-      );
-      process.exit(1);
+      failCommand(error);
     } finally {
       await prisma.$disconnect();
     }
