@@ -28,6 +28,9 @@ model Project {
   /// Branch new environments are cut from when the branch does not exist yet.
   defaultBaseBranch String @default("main")
 
+  /// pnpm, npm, yarn or bun. Null means "detect it from the checkout".
+  packageManager String?
+
   /// Default seed strategy: COPY_MAIN, FRESH_MIGRATE or SNAPSHOT.
   defaultSeed String?
   /// Database the COPY_MAIN strategy dumps from.
