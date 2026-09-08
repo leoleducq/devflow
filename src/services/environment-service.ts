@@ -1,8 +1,8 @@
 import { execa } from "execa";
 import { join, dirname } from "node:path";
-import os from "node:os";
 import fs from "fs-extra";
 import type { PrismaClient, Environment, Project } from "../db/types.js";
+import { devflowHome } from "../db/paths.js";
 import {
   parseJsonArray,
   toJsonArray,
@@ -63,7 +63,7 @@ type AdoptWorktreeOptions = {
   kind?: EnvironmentKind;
 };
 
-const PROVISION_LOCK = join(os.homedir(), ".devflow", "locks", "provision");
+const PROVISION_LOCK = join(devflowHome(), "locks", "provision");
 /** A lock older than this belongs to a crashed run and is taken over. */
 const PROVISION_LOCK_STALE_MS = 30 * 60 * 1000;
 
@@ -731,6 +731,9 @@ export class EnvironmentService {
       databaseUrl: dbRecord.url,
       dbEnvVarName: project.dbEnvVarName,
       ports: portsMap,
+      // Without this, cross-app URLs (API_URL, NEXT_PUBLIC_API_URL, CORS
+      // lists) keep pointing at the main checkout's ports on first provision.
+      originalPorts: appPorts,
     });
     emit({ type: "step", id: "env", status: "done" });
 
@@ -763,7 +766,18 @@ export class EnvironmentService {
   }
 
   private async installDependencies(worktreePath: string): Promise<void> {
-    await execa("pnpm", ["install"], { cwd: worktreePath });
+    try {
+      await execa("pnpm", ["install"], { cwd: worktreePath });
+    } catch (error) {
+      if ((error as { code?: string }).code === "ENOENT") {
+        throw new Error(
+          "pnpm is not on PATH. DevFlow installs a worktree's dependencies with pnpm; " +
+            "install it (https://pnpm.io/installation), or provision with --skip-install " +
+            "and install them yourself.",
+        );
+      }
+      throw error;
+    }
     const databasePath = join(worktreePath, "packages", "database");
     if (await fs.pathExists(databasePath)) {
       await execa("pnpm", ["prisma", "generate"], { cwd: databasePath });
