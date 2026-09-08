@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import chalk from "chalk";
+import { colors } from "../lib/colors.js";
 import { prisma } from "../db/index.js";
 import {
   AgentSkillsService,
@@ -22,7 +22,7 @@ const syncCommand = new Command()
     const herdr = new HerdrService();
     const status = await herdr.status();
     if (!status.running) {
-      console.error(chalk.yellow("herdr server is not running"));
+      console.error(colors.yellow("herdr server is not running"));
       process.exit(1);
     }
 
@@ -38,7 +38,7 @@ const syncCommand = new Command()
       try {
         await herdr.ensureWorkspace(project.path, project.name);
       } catch (error) {
-        console.error(chalk.yellow(`${project.name}: ${String(error)}`));
+        console.error(colors.yellow(`${project.name}: ${String(error)}`));
       }
     }
     let labelled = 0;
@@ -54,7 +54,7 @@ const syncCommand = new Command()
             .join(" "),
         });
       } catch (error) {
-        console.error(chalk.yellow(`${env.name}: ${String(error)}`));
+        console.error(colors.yellow(`${env.name}: ${String(error)}`));
       }
     }
     // Same installer as `devflow setup-agents`, so linking the plugin is
@@ -65,7 +65,7 @@ const syncCommand = new Command()
       o => o.action === "installed" || o.action === "updated",
     ).length;
     console.log(
-      chalk.green(
+      colors.green(
         `Synced ${projects.length} projects, labelled ${labelled} open environments, ${skills} agent skill(s) refreshed`,
       ),
     );

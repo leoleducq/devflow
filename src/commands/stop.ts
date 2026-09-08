@@ -1,9 +1,9 @@
 import { Command } from "commander";
-import chalk from "chalk";
+import { colors } from "../lib/colors.js";
 import { prisma } from "../db/index.js";
 import { EnvironmentService } from "../services/index.js";
 import { resolveEnvironment } from "../lib/resolve-environment.js";
-import { failCommand, printJson, quietSpinner } from "../lib/json-output.js";
+import { failCommand, printJson, startSpinner } from "../lib/json-output.js";
 
 export const stopCommand = new Command()
   .name("stop")
@@ -11,14 +11,14 @@ export const stopCommand = new Command()
   .argument("[env-name]", "Environment name (default: the environment of cwd)")
   .option("--json", "Machine-readable output")
   .action(async (envName: string | undefined, options) => {
-    const spinner = quietSpinner("Stopping environment…", options.json);
+    const spinner = startSpinner("Stopping environment…", options.json);
     try {
       const env = await resolveEnvironment({ name: envName });
-      spinner.text = `Stopping ${env.name}…`;
+      spinner.update(`Stopping ${env.name}…`);
       const stopped = await new EnvironmentService(prisma).stopEnvironment(
         env.id,
       );
-      spinner.succeed(chalk.green(`${env.name} stopped`));
+      spinner.succeed(colors.green(`${env.name} stopped`));
       if (options.json)
         printJson({
           environment: env.name,

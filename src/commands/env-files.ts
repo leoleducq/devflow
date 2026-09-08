@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import chalk from "chalk";
+import { colors } from "../lib/colors.js";
 import { prisma } from "../db/index.js";
 import { EnvironmentService } from "../services/index.js";
 import { resolveEnvironment } from "../lib/resolve-environment.js";
@@ -28,7 +28,7 @@ export const envFilesCommand = new Command()
         await service.regenerateEnvFiles(env.id);
         if (!options.json)
           console.log(
-            `${chalk.green("✔")} ${env.name} ${chalk.dim(env.kind === "LITE" ? "(main checkout's files)" : "")}`,
+            `${colors.green("✔")} ${env.name} ${colors.dim(env.kind === "LITE" ? "(main checkout's files)" : "")}`,
           );
       }
       if (options.json) {
@@ -44,7 +44,7 @@ export const envFilesCommand = new Command()
       }
       if (targets.some(e => e.kind !== "LITE"))
         console.log(
-          chalk.dim("Restart the dev servers to pick the new values up."),
+          colors.dim("Restart the dev servers to pick the new values up."),
         );
     } catch (error) {
       failCommand(error, options.json);

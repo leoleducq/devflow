@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import chalk from "chalk";
+import { colors } from "../lib/colors.js";
 import { prisma } from "../db/index.js";
 import { ProcessService } from "../services/index.js";
 import { printJson } from "../lib/json-output.js";
@@ -27,15 +27,15 @@ export const killZombiesCommand = new Command()
       return;
     }
     if (zombies.length === 0) {
-      console.log(chalk.green("No zombies"));
+      console.log(colors.green("No zombies"));
     } else {
       for (const z of zombies) {
-        console.log(`${chalk.dim(String(z.pid).padStart(6))}  ${z.command}`);
+        console.log(`${colors.dim(String(z.pid).padStart(6))}  ${z.command}`);
       }
       console.log(
         options.dryRun
-          ? chalk.yellow(`${zombies.length} zombie(s), not killed (--dry-run)`)
-          : chalk.green(`Killed ${zombies.length} zombie(s)`),
+          ? colors.yellow(`${zombies.length} zombie(s), not killed (--dry-run)`)
+          : colors.green(`Killed ${zombies.length} zombie(s)`),
       );
     }
     await prisma.$disconnect();

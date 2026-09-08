@@ -1,9 +1,9 @@
 import { Command } from "commander";
-import chalk from "chalk";
+import { colors } from "../lib/colors.js";
 import { prisma } from "../db/index.js";
 import { EnvironmentService } from "../services/index.js";
 import { resolveEnvironment } from "../lib/resolve-environment.js";
-import { failCommand, printJson, quietSpinner } from "../lib/json-output.js";
+import { failCommand, printJson, startSpinner } from "../lib/json-output.js";
 
 /**
  * `devflow teardown [path]`: release what `provision` created (processes,
@@ -25,10 +25,10 @@ export const teardownCommand = new Command()
   .action(async (path: string | undefined, options) => {
     try {
       const env = await resolveEnvironment({ name: options.name, cwd: path });
-      const spinner = quietSpinner(`Tearing down ${env.name}`, options.json);
+      const spinner = startSpinner(`Tearing down ${env.name}`, options.json);
       await new EnvironmentService(prisma).teardownEnvironment(env.id);
       spinner.succeed(
-        chalk.green(`Environment ${chalk.bold(env.name)} released`),
+        colors.green(`Environment ${colors.bold(env.name)} released`),
       );
       if (options.json)
         printJson({

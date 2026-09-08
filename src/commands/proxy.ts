@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import chalk from "chalk";
+import { colors } from "../lib/colors.js";
 import { prisma, parseJsonObject } from "../db/index.js";
 import { ProxyService } from "../services/index.js";
 
@@ -19,7 +19,7 @@ export const proxyCommand = new Command()
     let current: string | null = null;
 
     const log = (line: string) =>
-      console.log(`${chalk.dim(new Date().toISOString())} ${line}`);
+      console.log(`${colors.dim(new Date().toISOString())} ${line}`);
 
     const apply = async (environmentId: string | null) => {
       await proxies.stopAll();
@@ -33,7 +33,7 @@ export const proxyCommand = new Command()
         include: { ports: true, project: true },
       });
       if (!env || !env.project) {
-        log(chalk.yellow(`active environment ${environmentId} is gone`));
+        log(colors.yellow(`active environment ${environmentId} is gone`));
         return;
       }
       const appPorts =
@@ -44,10 +44,10 @@ export const proxyCommand = new Command()
         if (!target || target === originalPort) continue;
         try {
           await proxies.startProxy(env.id, app, originalPort, target);
-          log(`${chalk.bold(env.name)} ${app}: :${originalPort} → :${target}`);
+          log(`${colors.bold(env.name)} ${app}: :${originalPort} → :${target}`);
         } catch (error) {
           log(
-            chalk.yellow(
+            colors.yellow(
               `${app}: ${error instanceof Error ? error.message : String(error)}`,
             ),
           );
@@ -61,7 +61,7 @@ export const proxyCommand = new Command()
         const wanted = config?.activeEnvironmentId ?? null;
         if (wanted !== current) await apply(wanted);
       } catch (error) {
-        log(chalk.red(error instanceof Error ? error.message : String(error)));
+        log(colors.red(error instanceof Error ? error.message : String(error)));
       }
     };
 

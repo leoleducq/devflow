@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import chalk from "chalk";
+import { colors } from "../lib/colors.js";
 import { prisma, parseJsonArray, parseJsonObject } from "../db/index.js";
 import { ProcessService, EnvironmentService } from "../services/index.js";
 import { resolveEnvironment } from "../lib/resolve-environment.js";
@@ -62,14 +62,14 @@ export const runCommand = new Command()
             .map(app => ({ app, port: ports[app], url: `http://localhost:${ports[app]}` })),
         });
       } else {
-        console.log(chalk.bold(env.name));
+        console.log(colors.bold(env.name));
         for (const app of apps) {
           if (ports[app])
             console.log(
-              `  ${app}: ${chalk.cyan(`http://localhost:${ports[app]}`)}`,
+              `  ${app}: ${colors.cyan(`http://localhost:${ports[app]}`)}`,
             );
         }
-        console.log(chalk.dim("Ctrl+C stops all services\n"));
+        console.log(colors.dim("Ctrl+C stops all services\n"));
       }
 
       // Agents copy .env files around; make sure the servers start with this
@@ -88,7 +88,7 @@ export const runCommand = new Command()
       );
 
       const stop = async () => {
-        if (!options.json) console.log(chalk.dim("\nStopping services…"));
+        if (!options.json) console.log(colors.dim("\nStopping services…"));
         await processes.stopProcesses(env.id);
         await prisma.$disconnect();
         process.exit(0);

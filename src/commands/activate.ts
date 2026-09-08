@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import chalk from "chalk";
+import { colors } from "../lib/colors.js";
 import { prisma } from "../db/index.js";
 import { ConfigService } from "../services/index.js";
 import { resolveEnvironment } from "../lib/resolve-environment.js";
@@ -31,7 +31,7 @@ export const activateCommand = new Command()
           data: { activeEnvironmentId: null },
         });
         if (options.json) printJson({ active: null });
-        else console.log(chalk.green("No active environment"));
+        else console.log(colors.green("No active environment"));
         return;
       }
 
@@ -39,7 +39,7 @@ export const activateCommand = new Command()
       if (config.activeEnvironmentId === env.id) {
         if (options.json) printJson({ active: env.name, changed: false });
         else if (!options.quiet)
-          console.log(chalk.dim(`${env.name} already active`));
+          console.log(colors.dim(`${env.name} already active`));
         return;
       }
       await prisma.devflowConfig.update({
@@ -50,10 +50,10 @@ export const activateCommand = new Command()
         printJson({ active: env.name, changed: true });
       } else if (!options.quiet) {
         console.log(
-          chalk.green(`Environment ${chalk.bold(env.name)} is active`),
+          colors.green(`Environment ${colors.bold(env.name)} is active`),
         );
         console.log(
-          chalk.dim("Original ports now forward to it (via devflow proxy)"),
+          colors.dim("Original ports now forward to it (via devflow proxy)"),
         );
       }
     } catch (error) {
