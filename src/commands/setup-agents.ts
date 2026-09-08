@@ -1,6 +1,6 @@
 import { Command } from "commander";
-import chalk from "chalk";
-import inquirer from "inquirer";
+import { colors } from "../lib/colors.js";
+import * as prompts from "../lib/interactive.js";
 import { AgentSkillsService } from "../services/agent-skills-service.js";
 import type {
   SkillOutcome,
@@ -8,6 +8,7 @@ import type {
   SyncOptions,
 } from "../services/agent-skills-service.js";
 import { failCommand, printJson } from "../lib/json-output.js";
+import { printTable } from "../lib/table.js";
 import { version } from "../lib/version.js";
 import { DevflowError } from "../lib/errors.js";
 
@@ -16,43 +17,42 @@ import { DevflowError } from "../lib/errors.js";
  * like a warning there, while the same row after a write is a success.
  */
 const symbol = (outcome: SkillOutcome, mode: "status" | "write"): string => {
-  if (outcome.action === "skipped") return chalk.dim("·");
-  if (outcome.action === "up-to-date") return chalk.green("✔");
-  return mode === "status" ? chalk.yellow("!") : chalk.green("✔");
+  if (outcome.action === "skipped") return colors.dim("·");
+  if (outcome.action === "up-to-date") return colors.green("✔");
+  return mode === "status" ? colors.yellow("!") : colors.green("✔");
 };
 
 /** What each outcome reads as in the table, per mode. */
 const describe = (outcome: SkillOutcome, mode: "status" | "write"): string => {
   switch (outcome.action) {
     case "up-to-date":
-      return chalk.dim("current");
+      return colors.dim("current");
     case "installed":
-      return mode === "status" ? chalk.yellow("not installed") : "installed";
+      return mode === "status" ? colors.yellow("not installed") : "installed";
     case "updated": {
       const from = outcome.installedVersion;
       const drift = from ? `${from} → ${version()}` : `→ ${version()}`;
       return mode === "status"
-        ? chalk.yellow(`outdated (${drift})`)
+        ? colors.yellow(`outdated (${drift})`)
         : `updated (${drift})`;
     }
     case "removed":
       return "removed";
     case "skipped":
-      return chalk.dim(outcome.reason ?? "skipped");
+      return colors.dim(outcome.reason ?? "skipped");
   }
 };
 
 const table = (outcomes: SkillOutcome[], mode: "status" | "write"): void => {
-  const width = Math.max(...outcomes.map(o => o.label.length));
   console.log();
-  for (const outcome of outcomes) {
-    const detail = describe(outcome, mode);
-    const where =
-      outcome.action === "skipped" ? "" : `  ${chalk.dim(outcome.path)}`;
-    console.log(
-      `${symbol(outcome, mode)} ${chalk.bold(outcome.label.padEnd(width))}  ${detail}${where}`,
-    );
-  }
+  printTable(
+    outcomes.map(outcome => [
+      symbol(outcome, mode),
+      colors.bold(outcome.label),
+      describe(outcome, mode),
+      outcome.action === "skipped" ? "" : colors.dim(outcome.path),
+    ]),
+  );
   console.log();
 };
 
@@ -128,29 +128,35 @@ export const setupAgentsCommand = new Command()
 
       // Ask first, on the real plan: a preview run costs nothing and makes
       // the prompt name the exact files rather than a vague "some agents".
+      //
+      // Writing into someone's home directory without consent is the one
+      // thing this command must never do, so when it cannot ask — a pipe, CI
+      // — it refuses and names --yes instead of assuming agreement.
       if (!options.yes && !options.dryRun && !options.json) {
+        if (!prompts.canPrompt()) {
+          throw new DevflowError(
+            "CONFIRMATION_REQUIRED",
+            "setup-agents writes into your home directory; pass --yes to confirm, or --dry-run to see what it would write",
+          );
+        }
         const preview = pending(
           await service.install({ ...request, dryRun: true }),
         );
         if (preview.length === 0) {
           table(await service.status(request), "status");
-          console.log(chalk.green("Every agent already has the skill."));
+          console.log(colors.green("Every agent already has the skill."));
           return;
         }
         console.log();
-        console.log(chalk.bold(`DevFlow ${version()} — skill to install:`));
+        console.log(colors.bold(`DevFlow ${version()} — skill to install:`));
         for (const outcome of preview) console.log(`  ${outcome.path}`);
         console.log();
-        const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
-          {
-            type: "confirm",
-            name: "confirm",
-            message: `Write ${preview.length} file(s)?`,
-            default: true,
-          },
-        ]);
+        const confirm = await prompts.confirm({
+          message: `Write ${preview.length} file(s)?`,
+          initialValue: true,
+        });
         if (!confirm) {
-          console.log(chalk.yellow("Cancelled"));
+          console.log(colors.yellow("Cancelled"));
           return;
         }
       }
@@ -188,24 +194,24 @@ function finish(
   const skipped = outcomes.filter(o => o.action === "skipped").length;
 
   if (options.dryRun) {
-    console.log(chalk.dim("--dry-run: nothing was written."));
+    console.log(colors.dim("--dry-run: nothing was written."));
     return;
   }
   console.log(
-    chalk.green(
+    colors.green(
       `${context.verb} ${context.verb === "Removed" ? removed : changed} location(s).`,
     ),
   );
   if (skipped > 0 && !options.all && context.verb !== "Removed") {
     console.log(
-      chalk.dim(
+      colors.dim(
         "Agents that are not installed were skipped; --all writes to them anyway.",
       ),
     );
   }
   if (changed > 0) {
     console.log(
-      chalk.dim("Start a new agent session for it to pick the skill up."),
+      colors.dim("Start a new agent session for it to pick the skill up."),
     );
   }
 }

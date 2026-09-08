@@ -1,8 +1,8 @@
 import { resolve, basename } from "node:path";
 import { homedir } from "node:os";
-import chalk from "chalk";
+import { colors } from "./colors.js";
 import fs from "fs-extra";
-import inquirer from "inquirer";
+import * as prompts from "./interactive.js";
 import { TemplateService } from "../services/index.js";
 import type { ProjectInspection } from "../services/index.js";
 import { prisma } from "../db/index.js";
@@ -68,10 +68,10 @@ export async function inspectForRegistration(
 /** Print what was detected, so the user can see it before confirming. */
 export function printRegistration(registration: Registration): void {
   const line = (label: string, value: string) =>
-    console.log(`  ${chalk.bold(label.padEnd(14))} ${value || chalk.dim("-")}`);
+    console.log(`  ${colors.bold(label.padEnd(14))} ${value || colors.dim("-")}`);
 
   console.log();
-  console.log(chalk.bold.underline("Detected"));
+  console.log(colors.bold.underline("Detected"));
   line("path", registration.path);
   line("name", registration.name ?? basename(registration.path));
   line("type", registration.type);
@@ -94,94 +94,140 @@ export function printRegistration(registration: Registration): void {
 
   if (registration.inspectionError) {
     console.log(
-      chalk.yellow(`Could not inspect deeply: ${registration.inspectionError}`),
+      colors.yellow(`Could not inspect deeply: ${registration.inspectionError}`),
     );
     console.log(
-      chalk.dim("Fill the rest in with `devflow project set <name> --<field> <value>`."),
+      colors.dim("Fill the rest in with `devflow project set <name> --<field> <value>`."),
     );
     console.log();
   }
 }
 
 /**
- * Create the Project row. Interactive by default: the detected values become
- * the defaults of a short form, so confirming is one Enter per field and
- * correcting anything is possible without a second command.
+ * Every answer the registration wizard needs, as flags.
+ *
+ * Each question below has one, so `devflow init` and `devflow project add`
+ * can be driven end to end without a terminal. A prompt with no flag behind
+ * it is a prompt an agent cannot get past, which is the whole failure mode
+ * this shape exists to prevent.
+ */
+export type RegistrationAnswers = {
+  name?: string;
+  apps?: string;
+  defaultApps?: string;
+  defaultBaseBranch?: string;
+  dbEnvVarName?: string;
+  dbDockerImage?: string;
+  sourceDatabaseUrl?: string;
+};
+
+/**
+ * The flags that answer the wizard's questions, declared once and attached to
+ * both `devflow init` and `devflow project add`.
+ *
+ * They exist so neither command has a question that can only be answered by a
+ * human at a terminal: an agent passes the flags it cares about and lets the
+ * detected values stand for the rest.
+ */
+export const REGISTRATION_FLAGS: ReadonlyArray<readonly [string, string]> = [
+  ["--name <name>", "Project name (default: the detected one)"],
+  ["--apps <a,b>", "Every app the repo contains"],
+  ["--default-apps <a,b>", "Apps `devflow run` starts when none are named"],
+  ["--default-base-branch <branch>", "Branch new environments are cut from"],
+  ["--db-env-var-name <VAR>", "Env var holding the database URL"],
+  ["--db-docker-image <image>", "Postgres image for environment databases"],
+  ["--source-database-url <url>", "Database COPY_MAIN dumps from"],
+];
+
+/** Pick the registration answers out of whatever commander collected. */
+export const registrationAnswers = (
+  options: Record<string, unknown>,
+): RegistrationAnswers => {
+  const read = (key: string): string | undefined =>
+    typeof options[key] === "string" ? (options[key] as string) : undefined;
+  return {
+    name: read("name"),
+    apps: read("apps"),
+    defaultApps: read("defaultApps"),
+    defaultBaseBranch: read("defaultBaseBranch"),
+    dbEnvVarName: read("dbEnvVarName"),
+    dbDockerImage: read("dbDockerImage"),
+    sourceDatabaseUrl: read("sourceDatabaseUrl"),
+  };
+};
+
+/**
+ * Create the Project row.
+ *
+ * Interactive on a terminal: the detected values become the defaults of a
+ * short form, so confirming is one Enter per field. Everywhere else — a pipe,
+ * CI, `--yes`, `--json` — the detected values are used as they are, and any
+ * flag the caller passed overrides them. Nothing here can block waiting for
+ * input that will never come.
  */
 export async function registerProject(
   registration: Registration,
-  options: { interactive: boolean },
+  options: {
+    interactive: boolean;
+    answers?: RegistrationAnswers;
+    json?: boolean;
+  },
 ): Promise<Project> {
-  printRegistration(registration);
+  const answers = options.answers ?? {};
+  if (!options.json) printRegistration(registration);
 
   const detectedName = registration.name ?? basename(registration.path);
   const detectedDefaultApps = registration.apps.filter(app => app !== "docs");
+  const detectedBaseBranch = await detectDefaultBranch(registration.path);
 
-  let name = detectedName;
-  let apps = registration.apps;
-  let defaultApps = detectedDefaultApps;
-  let dbEnvVarName = registration.dbEnvVarName ?? "DATABASE_URL";
-  let dbDockerImage = registration.dbDockerImage ?? "postgres:15-alpine";
-  let sourceDatabaseUrl: string | null = null;
-  let defaultBaseBranch = await detectDefaultBranch(registration.path);
+  // A flag always wins; a prompt only happens when the caller asked for one
+  // and this run can actually hold a conversation.
+  const interactive =
+    options.interactive && prompts.canPrompt({ json: options.json });
 
-  if (options.interactive) {
-    const answers = await inquirer.prompt<{
-      name: string;
-      apps: string;
-      defaultApps: string;
-      defaultBaseBranch: string;
-      dbEnvVarName: string;
-      dbDockerImage: string;
-      sourceDatabaseUrl: string;
-    }>([
-      { type: "input", name: "name", message: "Project name:", default: detectedName },
-      {
-        type: "input",
-        name: "apps",
-        message: "Apps (comma-separated):",
-        default: registration.apps.join(","),
-      },
-      {
-        type: "input",
-        name: "defaultApps",
-        message: "Apps `devflow run` starts by default:",
-        default: detectedDefaultApps.join(","),
-      },
-      {
-        type: "input",
-        name: "defaultBaseBranch",
-        message: "Base branch new environments are cut from:",
-        default: defaultBaseBranch,
-      },
-      {
-        type: "input",
-        name: "dbEnvVarName",
-        message: "Env var holding the database URL:",
-        default: dbEnvVarName,
-      },
-      {
-        type: "input",
-        name: "dbDockerImage",
-        message: "Postgres image for environment databases:",
-        default: dbDockerImage,
-      },
-      {
-        type: "input",
-        name: "sourceDatabaseUrl",
-        message: "Database to copy data from (blank for none):",
-        default: "",
-      },
-    ]);
+  const field = async (
+    provided: string | undefined,
+    message: string,
+    fallback: string,
+  ): Promise<string> => {
+    if (provided !== undefined) return provided.trim() || fallback;
+    if (!interactive) return fallback;
+    const answer = await prompts.text({ message, initialValue: fallback });
+    return answer.trim() || fallback;
+  };
 
-    name = answers.name.trim() || detectedName;
-    apps = splitList(answers.apps);
-    defaultApps = splitList(answers.defaultApps);
-    defaultBaseBranch = answers.defaultBaseBranch.trim() || defaultBaseBranch;
-    dbEnvVarName = answers.dbEnvVarName.trim() || dbEnvVarName;
-    dbDockerImage = answers.dbDockerImage.trim() || dbDockerImage;
-    sourceDatabaseUrl = answers.sourceDatabaseUrl.trim() || null;
-  }
+  const name = await field(answers.name, "Project name", detectedName);
+  const apps = splitList(
+    await field(answers.apps, "Apps (comma-separated)", registration.apps.join(",")),
+  );
+  const defaultApps = splitList(
+    await field(
+      answers.defaultApps,
+      "Apps `devflow run` starts by default",
+      detectedDefaultApps.join(","),
+    ),
+  );
+  const defaultBaseBranch = await field(
+    answers.defaultBaseBranch,
+    "Base branch new environments are cut from",
+    detectedBaseBranch,
+  );
+  const dbEnvVarName = await field(
+    answers.dbEnvVarName,
+    "Env var holding the database URL",
+    registration.dbEnvVarName ?? "DATABASE_URL",
+  );
+  const dbDockerImage = await field(
+    answers.dbDockerImage,
+    "Postgres image for environment databases",
+    registration.dbDockerImage ?? "postgres:15-alpine",
+  );
+  const sourceDatabaseUrl =
+    (await field(
+      answers.sourceDatabaseUrl,
+      "Database to copy data from (blank for none)",
+      "",
+    )) || null;
 
   const existing = await prisma.project.findUnique({ where: { name } });
   if (existing) {

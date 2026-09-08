@@ -1,15 +1,22 @@
 import { Command } from "commander";
-import chalk from "chalk";
-import ora from "ora";
+import { colors } from "../lib/colors.js";
 import { prisma } from "../db/index.js";
 import { checkTool, which } from "../lib/checks.js";
 import type { Check } from "../lib/checks.js";
 import {
   inspectForRegistration,
   registerProject,
+  registrationAnswers,
+  REGISTRATION_FLAGS,
 } from "../lib/register-project.js";
 import { skillIsInstalled } from "../lib/skill-presence.js";
-import { failCommand } from "../lib/json-output.js";
+import {
+  failCommand,
+  printJson,
+  redact,
+  startSpinner,
+} from "../lib/json-output.js";
+import { table as tableLines } from "../lib/table.js";
 
 /**
  * Only what `init` itself needs. The full sweep — orphaned containers, the
@@ -44,9 +51,9 @@ async function prerequisites(): Promise<Check[]> {
 }
 
 const SYMBOL = {
-  ok: chalk.green("✔"),
-  warn: chalk.yellow("!"),
-  fail: chalk.red("✘"),
+  ok: colors.green("✔"),
+  warn: colors.yellow("!"),
+  fail: colors.red("✘"),
 } as const;
 
 export const initCommand = new Command()
@@ -56,34 +63,68 @@ export const initCommand = new Command()
   )
   .argument("[path]", "Project directory (default: current directory)")
   .option("-y, --yes", "Accept everything detected without prompting")
+  .option("--json", "Machine-readable output");
+
+// The wizard's questions, also available as flags: `devflow init` has to work
+// from a script or an agent, not only from a terminal.
+for (const [flag, description] of REGISTRATION_FLAGS) {
+  initCommand.option(flag, description);
+}
+
+initCommand
+  .addHelpText(
+    "after",
+    `
+Examples:
+  $ devflow init                        detect and register, asking to confirm
+  $ devflow init -y                     accept everything detected
+  $ devflow init --name api --apps web,api --json`,
+  )
   .action(async (pathArg: string | undefined, options) => {
     try {
-      console.log();
-      console.log(chalk.bold.underline("Prerequisites"));
-      const checks = await prerequisites();
-      const width = Math.max(...checks.map(c => c.name.length));
-      for (const check of checks) {
-        console.log(
-          `  ${SYMBOL[check.level]} ${chalk.bold(check.name.padEnd(width))}  ${
-            check.level === "ok" ? chalk.dim(check.detail) : check.detail
-          }`,
+      if (options.json) {
+        // A JSON caller wants the project row, not a setup report.
+        const registration = await inspectForRegistration(
+          pathArg ?? process.cwd(),
         );
-        if (check.hint && check.level !== "ok") {
-          console.log(`    ${chalk.dim("→")} ${chalk.dim(check.hint)}`);
-        }
+        const project = await registerProject(registration, {
+          interactive: false,
+          json: true,
+          answers: registrationAnswers(options),
+        });
+        printJson(redact(project));
+        return;
       }
+
+      console.log();
+      console.log(colors.bold.underline("Prerequisites"));
+      const checks = await prerequisites();
+      const rendered = tableLines(
+        checks.map(check => [
+          SYMBOL[check.level],
+          colors.bold(check.name),
+          check.level === "ok" ? colors.dim(check.detail) : check.detail,
+        ]),
+        { indent: "  " },
+      );
+      checks.forEach((check, i) => {
+        console.log(rendered[i]);
+        if (check.hint && check.level !== "ok") {
+          console.log(`    ${colors.dim(`→ ${check.hint}`)}`);
+        }
+      });
 
       if (checks.some(c => c.level === "fail")) {
         console.log();
         console.log(
-          chalk.red(
+          colors.red(
             "Install the missing tools above, then run `devflow init` again.",
           ),
         );
         process.exit(1);
       }
 
-      const spinner = ora("Inspecting the project…").start();
+      const spinner = startSpinner("Inspecting the project…");
       const registration = await inspectForRegistration(
         pathArg ?? process.cwd(),
       );
@@ -91,39 +132,42 @@ export const initCommand = new Command()
 
       const project = await registerProject(registration, {
         interactive: !options.yes,
+        answers: registrationAnswers(options),
       });
 
       console.log();
-      console.log(chalk.green(`${chalk.bold(project.name)} is registered.`));
+      console.log(
+        `${colors.green("✔")} ${colors.bold(project.name)} is registered.`,
+      );
       console.log();
-      console.log(chalk.bold("Next"));
+      console.log(colors.bold("Next"));
       console.log(
-        `  ${chalk.dim("provision this checkout")}   devflow provision`,
+        `  ${colors.dim("provision this checkout")}   devflow provision`,
       );
-      console.log(`  ${chalk.dim("run its dev servers")}       devflow run`);
+      console.log(`  ${colors.dim("run its dev servers")}       devflow run`);
       console.log(
-        `  ${chalk.dim("review what was detected")}  devflow project get ${project.name}`,
+        `  ${colors.dim("review what was detected")}  devflow project get ${project.name}`,
       );
       console.log(
-        `  ${chalk.dim("connect Linear")}            devflow project linear ${project.name}`,
+        `  ${colors.dim("connect Linear")}            devflow project linear ${project.name}`,
       );
-      console.log(`  ${chalk.dim("check the whole setup")}     devflow doctor`);
+      console.log(`  ${colors.dim("check the whole setup")}     devflow doctor`);
       console.log();
 
       // Offered, never done: installing files into someone's home directory
       // is their decision, and `setup-agents` asks again before it writes.
       if (!skillIsInstalled()) {
-        console.log(chalk.bold("Working with coding agents?"));
+        console.log(colors.bold("Working with coding agents?"));
         console.log(
-          `  ${chalk.dim("teach every agent on this machine")}  devflow setup-agents`,
+          `  ${colors.dim("teach every agent on this machine")}  devflow setup-agents`,
         );
         console.log(
-          `  ${chalk.dim("or just read the skill yourself")}    devflow skill`,
+          `  ${colors.dim("or just read the skill yourself")}    devflow skill`,
         );
         console.log();
       }
     } catch (error) {
-      failCommand(error);
+      failCommand(error, options.json);
     } finally {
       await prisma.$disconnect();
     }

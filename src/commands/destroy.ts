@@ -1,9 +1,9 @@
 import { Command } from "commander";
-import chalk from "chalk";
-import inquirer from "inquirer";
+import { colors } from "../lib/colors.js";
+import * as prompts from "../lib/interactive.js";
 import { prisma } from "../db/index.js";
 import { EnvironmentService } from "../services/index.js";
-import { failCommand, printJson, quietSpinner } from "../lib/json-output.js";
+import { failCommand, printJson, startSpinner } from "../lib/json-output.js";
 import { DevflowError } from "../lib/errors.js";
 
 export const destroyCommand = new Command()
@@ -22,32 +22,30 @@ export const destroyCommand = new Command()
           `Environment '${envName}' not found`,
         );
 
-      // A prompt would hang a caller reading JSON off a pipe, so --json
-      // demands the same explicit consent as a script does.
+      // Destroying is irreversible, so consent is never assumed. A caller
+      // that cannot be asked — a pipe, CI, --json — has to say --yes up
+      // front rather than have the command block on a question nobody will
+      // ever see.
       if (!options.yes) {
-        if (options.json) {
+        if (!prompts.canPrompt({ json: options.json })) {
           throw new DevflowError(
             "CONFIRMATION_REQUIRED",
             `Destroying ${envName} removes its worktree and database; pass --yes to confirm`,
           );
         }
-        const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
-          {
-            type: "confirm",
-            name: "confirm",
-            message: `Destroy environment ${chalk.cyan(envName)}? This will remove the worktree and database.`,
-            default: false,
-          },
-        ]);
-        if (!confirm) {
-          console.log(chalk.yellow("Cancelled"));
+        const confirmed = await prompts.confirm({
+          message: `Destroy environment ${envName}? This removes the worktree and database.`,
+          initialValue: false,
+        });
+        if (!confirmed) {
+          console.log(colors.yellow("Cancelled"));
           return;
         }
       }
 
-      const spinner = quietSpinner(`Destroying ${envName}…`, options.json);
+      const spinner = startSpinner(`Destroying ${envName}…`, options.json);
       await environmentService.destroyEnvironment(env.id);
-      spinner.succeed(chalk.green(`Environment '${envName}' destroyed`));
+      spinner.succeed(colors.green(`Environment '${envName}' destroyed`));
       if (options.json)
         printJson({
           environment: envName,
