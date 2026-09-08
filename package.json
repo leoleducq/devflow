@@ -14,7 +14,7 @@
     "coding-agents"
   ],
   "license": "MIT",
-  "author": "L\u00e9o Leducq",
+  "author": "Léo Leducq",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/leoleducq/devflow.git"
@@ -38,6 +38,7 @@
     "skills/devflow/SKILL.md",
     "scripts/herdr",
     "herdr-plugin.toml",
+    "AGENTS.md",
     "README.md",
     "LICENSE"
   ],
