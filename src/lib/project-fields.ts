@@ -17,9 +17,17 @@ type FieldSpec = {
   flag: string;
   placeholder: string;
   description: string;
-  parse: (raw: string) => Promise<string> | string;
-  display?: (value: string | null) => string;
+  parse: (raw: string) => Promise<FieldValue> | FieldValue;
+  /**
+   * Render the stored value for `project get`. It receives whatever the
+   * column holds, which is why it takes the whole union rather than the one
+   * type a given field happens to store.
+   */
+  display?: (value: string | boolean | null) => string;
 };
+
+/** What a column can hold: text, or a flag column like `portless`. */
+type FieldValue = string | boolean;
 
 const asJsonArray = (raw: string): string =>
   toJsonArray(
@@ -29,13 +37,15 @@ const asJsonArray = (raw: string): string =>
       .filter(Boolean),
   );
 
-const showJsonArray = (value: string | null): string => {
-  const items = parseJsonArray(value);
+const showJsonArray = (value: string | boolean | null): string => {
+  const items = parseJsonArray(typeof value === "string" ? value : null);
   return items.length > 0 ? items.join(", ") : "-";
 };
 
-const showJsonObject = (value: string | null): string => {
-  const parsed = parseJsonObject<Record<string, unknown>>(value);
+const showJsonObject = (value: string | boolean | null): string => {
+  const parsed = parseJsonObject<Record<string, unknown>>(
+    typeof value === "string" ? value : null,
+  );
   if (!parsed) return "-";
   const entries = Object.entries(parsed);
   return entries.length > 0
@@ -97,6 +107,16 @@ async function parsePath(raw: string): Promise<string> {
     throw new Error(`path: ${absolute} does not exist`);
   }
   return absolute;
+}
+
+/** `true/false`, and the words people actually type for them. */
+function parseBoolean(label: string) {
+  return (raw: string): boolean => {
+    const value = raw.trim().toLowerCase();
+    if (["true", "yes", "on", "1"].includes(value)) return true;
+    if (["false", "no", "off", "0"].includes(value)) return false;
+    throw new Error(`${label}: expected true or false, got '${raw}'`);
+  };
 }
 
 const SEED_STRATEGIES = ["COPY_MAIN", "FRESH_MIGRATE", "SNAPSHOT"];
@@ -198,6 +218,13 @@ export const PROJECT_FIELDS = {
     parse: parseAppPorts,
     display: showJsonObject,
   },
+  portless: {
+    flag: "portless",
+    placeholder: "<true|false>",
+    description: "Give each app a named HTTPS URL through portless",
+    parse: parseBoolean("portless"),
+    display: value => (value ? "on" : "off"),
+  },
   linearApiKey: {
     flag: "linear-api-key",
     placeholder: "<key>",
@@ -253,7 +280,7 @@ export const FIELD_BY_OPTION_KEY = new Map<string, ProjectField>(
 export async function buildProjectUpdate(
   options: Record<string, unknown>,
 ): Promise<Prisma.ProjectUpdateInput> {
-  const update: Record<string, string> = {};
+  const update: Record<string, FieldValue> = {};
 
   for (const [key, raw] of Object.entries(options)) {
     const field = FIELD_BY_OPTION_KEY.get(key);
@@ -277,7 +304,7 @@ export function describeProject(project: Project): Array<[string, string]> {
     const value = project[field];
     const text =
       "display" in spec && spec.display
-        ? spec.display(value as string | null)
+        ? spec.display(value)
         : ((value as string | null) ?? "-");
     return [field, text];
   });
