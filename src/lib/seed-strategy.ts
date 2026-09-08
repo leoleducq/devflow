@@ -49,7 +49,7 @@ export const snapshotDir = (): string => join(devflowHome(), "snapshots");
  *
  * A named snapshot is checked here rather than at the seed step, which is the
  * last of six: being told the dump does not exist after a container has been
- * created and `pnpm install` has run is a five-minute way to learn about a
+ * created and the dependency install has run is a five-minute way to learn about a
  * typo.
  */
 export async function parseSeedOption(

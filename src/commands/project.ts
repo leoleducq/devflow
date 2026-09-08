@@ -216,7 +216,9 @@ setCommand.action(async (name: string, options: Record<string, unknown>) => {
 
 projectCommand
   .command("inspect")
-  .description("Re-detect apps, ports and dev commands from a project's files")
+  .description(
+    "Re-detect apps, ports, dev commands and package manager from a project's files",
+  )
   .argument("<name>", "Project name")
   .option("--apply", "Write what was detected back onto the project")
   .option("--json", "Machine-readable output")
@@ -248,6 +250,7 @@ projectCommand
               .map(([app, cmd]) => `${app}=${cmd}`)
               .join(", "),
           ],
+          ["packageManager", inspection.packageManager],
           ["dbEnvVarName", inspection.dbEnvVarName ?? ""],
           ["dbDockerImage", inspection.dbDockerImage ?? ""],
         ];
@@ -269,6 +272,7 @@ projectCommand
           apps: JSON.stringify(inspection.apps),
           appPorts: JSON.stringify(inspection.appPorts),
           devCommands: JSON.stringify(inspection.devCommands),
+          packageManager: inspection.packageManager,
           ...(inspection.dbEnvVarName
             ? { dbEnvVarName: inspection.dbEnvVarName }
             : {}),

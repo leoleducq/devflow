@@ -30,7 +30,7 @@ export const provisionCommand = new Command()
   .option("--apps <apps>", "Comma-separated apps to run (default: project's)")
   .option("--seed <strategy>", "Database seed: copy-main, fresh, snapshot:name")
   .option("--base <branch>", "Base branch for diffs (default: the project's defaultBaseBranch)")
-  .option("--skip-install", "Skip pnpm install and prisma generate")
+  .option("--skip-install", "Skip dependency install and prisma generate")
   .option(
     "--lite",
     "Register the checkout only; ports, database and deps come with the first `devflow run`",

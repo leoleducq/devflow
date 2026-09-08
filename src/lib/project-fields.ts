@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import fs from "fs-extra";
 import type { Prisma, Project } from "../db/types.js";
 import { toJsonArray, parseJsonArray, parseJsonObject } from "./json-serialization.js";
+import { PACKAGE_MANAGERS, isPackageManager } from "./package-manager.js";
 
 /**
  * How one editable Project column maps to a `--flag` and back.
@@ -138,6 +139,17 @@ function parseSeed(raw: string): string {
   return resolved;
 }
 
+/** Only the four managers DevFlow knows the argv of; anything else is a typo. */
+function parsePackageManager(raw: string): string {
+  const value = raw.trim().toLowerCase();
+  if (!isPackageManager(value)) {
+    throw new Error(
+      `packageManager: expected one of ${PACKAGE_MANAGERS.join(", ")}, got '${raw}'`,
+    );
+  }
+  return value;
+}
+
 function parseNonEmpty(label: string) {
   return (raw: string): string => {
     const value = raw.trim();
@@ -179,6 +191,15 @@ export const PROJECT_FIELDS = {
     placeholder: "<branch>",
     description: "Branch new environments are cut from",
     parse: parseNonEmpty("defaultBaseBranch"),
+  },
+  packageManager: {
+    flag: "package-manager",
+    placeholder: "<pm>",
+    description: `Manager to install and run with: ${PACKAGE_MANAGERS.join(" | ")}`,
+    parse: parsePackageManager,
+    // Null is not "unset and broken": it means DevFlow works the manager out
+    // from the checkout on every run, which is the default and fine.
+    display: value => (typeof value === "string" ? value : "auto-detected"),
   },
   defaultSeed: {
     flag: "default-seed",

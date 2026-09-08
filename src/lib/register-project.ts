@@ -7,6 +7,11 @@ import { TemplateService } from "../services/index.js";
 import type { ProjectInspection } from "../services/index.js";
 import { prisma } from "../db/index.js";
 import type { Project } from "../db/types.js";
+import {
+  detectPackageManager,
+  isPackageManager,
+  PACKAGE_MANAGERS,
+} from "./package-manager.js";
 
 /**
  * What DevFlow found in a directory, ready to be turned into a Project row.
@@ -20,7 +25,8 @@ export type Registration = ProjectInspection & {
   inspectionError: string | null;
 };
 
-const expand = (input: string): string =>
+/** `~/code/app` and `./app` both become an absolute path. */
+export const expandProjectPath = (input: string): string =>
   resolve(input.startsWith("~") ? input.replace("~", homedir()) : input);
 
 /**
@@ -31,7 +37,7 @@ const expand = (input: string): string =>
 export async function inspectForRegistration(
   pathArg: string,
 ): Promise<Registration> {
-  const projectPath = expand(pathArg);
+  const projectPath = expandProjectPath(pathArg);
 
   if (!(await fs.pathExists(projectPath))) {
     throw new Error(`${projectPath} does not exist`);
@@ -60,6 +66,7 @@ export async function inspectForRegistration(
       appPorts: {},
       dbEnvVarName: null,
       dbDockerImage: null,
+      packageManager: await detectPackageManager(projectPath),
       inspectionError: error instanceof Error ? error.message : String(error),
     };
   }
@@ -88,6 +95,7 @@ export function printRegistration(registration: Registration): void {
       .map(([app, cmd]) => `${app}=${cmd}`)
       .join(", "),
   );
+  line("packageManager", registration.packageManager);
   line("dbEnvVarName", registration.dbEnvVarName ?? "");
   line("dbDockerImage", registration.dbDockerImage ?? "");
   console.log();
@@ -116,6 +124,7 @@ export type RegistrationAnswers = {
   apps?: string;
   defaultApps?: string;
   defaultBaseBranch?: string;
+  packageManager?: string;
   dbEnvVarName?: string;
   dbDockerImage?: string;
   sourceDatabaseUrl?: string;
@@ -134,6 +143,10 @@ export const REGISTRATION_FLAGS: ReadonlyArray<readonly [string, string]> = [
   ["--apps <a,b>", "Every app the repo contains"],
   ["--default-apps <a,b>", "Apps `devflow run` starts when none are named"],
   ["--default-base-branch <branch>", "Branch new environments are cut from"],
+  [
+    "--package-manager <pm>",
+    `Package manager to install and run with: ${PACKAGE_MANAGERS.join(" | ")}`,
+  ],
   ["--db-env-var-name <VAR>", "Env var holding the database URL"],
   ["--db-docker-image <image>", "Postgres image for environment databases"],
   ["--source-database-url <url>", "Database COPY_MAIN dumps from"],
@@ -150,6 +163,7 @@ export const registrationAnswers = (
     apps: read("apps"),
     defaultApps: read("defaultApps"),
     defaultBaseBranch: read("defaultBaseBranch"),
+    packageManager: read("packageManager"),
     dbEnvVarName: read("dbEnvVarName"),
     dbDockerImage: read("dbDockerImage"),
     sourceDatabaseUrl: read("sourceDatabaseUrl"),
@@ -212,6 +226,17 @@ export async function registerProject(
     "Base branch new environments are cut from",
     detectedBaseBranch,
   );
+  const packageManager = await field(
+    answers.packageManager,
+    `Package manager (${PACKAGE_MANAGERS.join(" | ")})`,
+    registration.packageManager,
+  );
+  if (!isPackageManager(packageManager)) {
+    throw new Error(
+      `packageManager: expected one of ${PACKAGE_MANAGERS.join(", ")}, got '${packageManager}'`,
+    );
+  }
+
   const dbEnvVarName = await field(
     answers.dbEnvVarName,
     "Env var holding the database URL",
@@ -244,6 +269,7 @@ export async function registerProject(
       apps: JSON.stringify(apps),
       defaultApps: JSON.stringify(defaultApps),
       defaultBaseBranch,
+      packageManager,
       dbEnvVarName,
       dbDockerImage,
       devCommands: JSON.stringify(registration.devCommands),

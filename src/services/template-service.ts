@@ -1,6 +1,10 @@
 import { execa } from "execa";
 import fs from "fs-extra";
 import path from "path";
+import {
+  detectPackageManager,
+  type PackageManager,
+} from "../lib/package-manager.js";
 
 type CloneTemplateOptions = {
   templateRepo: string;
@@ -30,6 +34,8 @@ export type ProjectInspection = {
   appPorts: Record<string, number>;
   dbEnvVarName: string | null;
   dbDockerImage: string | null;
+  /** The manager the checkout declares or its lock file implies. */
+  packageManager: PackageManager;
 };
 
 const DEFAULT_FRAMEWORK_PORTS: Record<string, number> = {
@@ -259,6 +265,7 @@ export class TemplateService {
       appPorts,
       dbEnvVarName,
       dbDockerImage,
+      packageManager: await detectPackageManager(projectPath),
     };
   }
 }

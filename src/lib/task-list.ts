@@ -10,7 +10,7 @@ import type { CreateEnvProgress, CreateEnvStepId } from "../services/index.js";
  * deps, .env, seed — and any of them can be the slow one or the failing one.
  * A single spinner whose text is overwritten shows only the step in flight:
  * when it fails you cannot see what already succeeded, and while it runs you
- * cannot see that `pnpm install` has been going for four minutes. A task list
+ * cannot see that the dependency install has been going for four minutes. A task list
  * keeps every step on screen with its own state and its own elapsed time.
  *
  * The services already emit `{type:"step", id, status}` events, so this is a

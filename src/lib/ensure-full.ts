@@ -15,7 +15,7 @@ type Env = NonNullable<
  * This is the moment a user is least expecting a wait — they asked to run
  * dev servers and got a five-minute provision — so it shows the same
  * checklist as `provision` rather than a single spinner: the wait is at
- * least legible, and `pnpm install` is visibly the reason for it.
+ * least legible, and the dependency install is visibly the reason for it.
  *
  * `quiet` silences the progress for callers whose stdout is a JSON document.
  */

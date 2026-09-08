@@ -92,7 +92,7 @@ Examples:
       }
 
       // The same six steps as `provision`, shown the same way: one line each,
-      // with its own elapsed time, so a four-minute `pnpm install` is visible
+      // with its own elapsed time, so a four-minute the dependency install is visible
       // as itself rather than as a spinner that seems stuck.
       const created = await runSteps({
         steps: CREATE_ENV_STEPS,
