@@ -27,10 +27,12 @@ Postgres containers.
 
 ## Machine-readable output
 
-Add `--json` to any command that returns data: `list`, `doctor`, `provision`,
-`create`, `start`, `stop`, `teardown`, `destroy`, `activate`, `db`,
-`env-files`, `kill-zombies`, `config get`, `skill`, `setup-agents`, `init`,
-and `project list|get|inspect|issues|linear|add|remove`.
+Add `--json` to any command that returns data: `list`, `status`, `doctor`,
+`provision`, `create`, `promote`, `start`, `stop`, `teardown`, `destroy`,
+`activate`, `ps`, `logs`, `diff`, `history`, `db`, `db query`, `db snapshot`,
+`db snapshots`, `env-files`, `kill-zombies`, `config get`, `skill`,
+`setup-agents`, `init`, `template list|add|remove|new`, and
+`project list|get|inspect|issues|linear|add|remove|prs|branches`.
 
 The contract: one JSON value on stdout, nothing else. A failure prints
 `{"ok": false, "error": {"code", "message"}}` on **stderr** and exits non-zero.
@@ -61,18 +63,33 @@ devflow setup-agents --yes                       # or --dry-run to see the plan 
 ## Commands (run in the worktree, or pass the env name)
 
 ```bash
+devflow status [env-name] [--all]    # this environment, or the machine + which env the proxies point at
 devflow list --json                  # every environment: name, status, kind, ports, worktreePath
 devflow provision [path] [--lite]    # register (lite) or fully provision a checkout
-devflow create <project> <branch>    # cut the branch, make the worktree, provision it (always FULL)
+devflow create <project> <branch>    # cut the branch, make the worktree, provision it
+devflow create <project> --pr <n>    # same, with the branch, base, title and URL taken from a GitHub PR
+devflow promote [env-name]           # give a LITE environment its ports, database and deps now
 devflow run [--apps web,api]         # dev servers in the foreground; provisions first if LITE
+devflow ps [env-name]                # what is running, per app, with its pid and port
+devflow ps start|stop|restart <app>  # control one app without touching the others
+devflow ps stop-all                  # stop the dev servers of every environment
+devflow logs [--app api] [--errors]  # what the dev servers printed; -f follows
+devflow diff [--uncommitted] [--stat]# what this environment changed against its base branch
+devflow history [--patch]            # the commits it added on top of that base
 devflow env-files [env-name] [--all] # regenerate .env files (db + ports of the env); restart servers after
 devflow db [--url] [--json]          # lazysql on the env's Postgres (or print the URL / connection details)
+devflow db query "<sql>" [--json]    # run SQL against the environment's database
+devflow db snapshot <name>           # pg_dump it, for `--seed snapshot:<name>` later
 devflow teardown [path]              # release database and ports, keep the checkout
 devflow destroy <env-name> --yes     # everything, including the worktree
 devflow start|stop [env-name]        # database container up / down
+devflow activate [env-name|--show|--none]  # which environment the original ports forward to
 devflow kill-zombies [--dry-run]     # orphaned next/turbo/tsx/vite processes
+devflow project prs <name> --json    # open pull requests, with the number `create --pr` takes
+devflow project branches <name>      # local branches, newest commit first
 devflow project issues <name> --json # open Linear issues with their branch names
 devflow project linear <name> --api-key <key> --team <id|key> [--project <id|name>] [--json]
+devflow template new <name> <repo>   # scaffold a project from a template and register it
 devflow completion zsh|bash|fish     # shell completion script on stdout
 devflow doctor --json                # tools, database, projects, orphaned containers
 ```
@@ -87,13 +104,42 @@ hit before the logs start.
 No MCP server: use the CLI, it costs nothing per agent.
 
 ```bash
-psql "$(devflow db --url)" -c "select count(*) from \"user\";"
-psql "$(devflow db --url myapp-proj-123)" -Atc "select id, email from \"user\" limit 5;"
+devflow db query "select count(*) from \"user\"" --json
+devflow db query "update \"user\" set credits = 100 where email = 'a@b.c'"
+devflow db query --file seed.sql --env myapp-proj-123
+psql "$(devflow db --url)" -c "select count(*) from \"user\";"    # or use psql directly
 ```
+
+`devflow db query --json` returns `{command, rowCount, fields, rows}`. It is
+the environment's own throwaway database, so writes are not gated.
 
 `devflow db --url` provisions a LITE environment first — it has no database
 until then. To read the connection host, port and user separately, use
 `devflow db --json`.
+
+## Working on a pull request
+
+```bash
+devflow project prs myapp --json                 # numbers, branches, and which already have an env
+devflow create myapp --pr 412                    # branch, base, title and URL come from the PR
+devflow diff --stat                              # what the PR changes, against its real base
+devflow logs --errors                            # why it is failing, once the servers are up
+```
+
+`--pr` needs `gh` installed and authenticated; `devflow doctor` reports it.
+
+## Reading what the dev servers printed
+
+`devflow run` writes every line to `~/.devflow/logs/<env>.jsonl` as well as to
+its own stdout, so another pane can read them:
+
+```bash
+devflow logs --errors -n 50      # stderr only: what crashed
+devflow logs --app api -f        # follow one app
+devflow logs --json -n 200       # entries as {timestamp, app, stream, text}
+```
+
+An environment that has never been run has no logs.
 
 ## Running several branches in parallel
 
