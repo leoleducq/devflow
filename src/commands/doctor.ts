@@ -225,7 +225,7 @@ export const doctorCommand = new Command()
         command: "gh",
         required: false,
         versionArgs: ["--version"],
-        hint: "Optional: needed to create an environment from a pull request",
+        hint: "Optional: `devflow create <project> --pr <n>` and `devflow project prs` read pull requests through it",
       }),
       await checkTool({
         command: "psql",

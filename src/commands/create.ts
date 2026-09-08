@@ -9,16 +9,17 @@ import {
 import { failCommand, printJson } from "../lib/json-output.js";
 import { runSteps, renderMode } from "../lib/task-list.js";
 import { DevflowError } from "../lib/errors.js";
-const SEED_STRATEGY_MAP: Record<string, string> = {
-  "copy-main": "COPY_MAIN",
-  fresh: "FRESH_MIGRATE",
-};
+import { parseSeedOption } from "../lib/seed-strategy.js";
 
 export const createCommand = new Command()
   .name("create")
   .description("Create a new development environment")
   .argument("<project>", "Project name")
-  .argument("<branch>", "Branch name")
+  .argument("[branch]", "Branch name (omit when --pr supplies it)")
+  .option(
+    "--pr <number>",
+    "Create the environment from a GitHub pull request (needs gh)",
+  )
   .option(
     "--apps <apps>",
     "Comma-separated list of apps to run (e.g., api,web)",
@@ -27,7 +28,12 @@ export const createCommand = new Command()
     "--seed <strategy>",
     "Database seed strategy (copy-main, fresh, snapshot:name)",
   )
+  .option("--base <branch>", "Base branch to cut from and diff against")
   .option("--skip-install", "Skip installing dependencies")
+  .option(
+    "--lite",
+    "Worktree only; ports, database and deps come with the first `devflow run`",
+  )
   .option("--json", "Machine-readable output")
   .addHelpText(
     "after",
@@ -35,9 +41,10 @@ export const createCommand = new Command()
 Examples:
   $ devflow create myapp feat/login          worktree, ports, database, deps
   $ devflow create myapp fix/bug --seed fresh
+  $ devflow create myapp --pr 412            branch, base and title from the PR
   $ devflow create myapp feat/x --json       machine-readable, no progress`,
   )
-  .action(async (projectName: string, branch: string, cmdOptions) => {
+  .action(async (projectName: string, branch: string | undefined, cmdOptions) => {
     const mode = renderMode({ json: cmdOptions.json });
 
     try {
@@ -52,18 +59,36 @@ Examples:
         );
       }
 
+      // A PR supplies the branch, the base and the title; a branch argument
+      // supplies only the branch. One of the two has to be there, and asking
+      // for it is not an option — most callers here are agents.
+      const prNumber = cmdOptions.pr ? Number(cmdOptions.pr) : undefined;
+      if (prNumber !== undefined && !Number.isInteger(prNumber)) {
+        throw new DevflowError(
+          "INVALID_ARGUMENT",
+          `--pr expects a pull request number, got '${cmdOptions.pr}'`,
+        );
+      }
+      if (!branch && prNumber === undefined) {
+        throw new DevflowError(
+          "INPUT_REQUIRED",
+          "A branch is required. Pass one as the second argument, or use --pr <number>.",
+        );
+      }
+
       const environmentService = new EnvironmentService(prisma);
 
-      let seedStrategy: string | undefined;
-      if (cmdOptions.seed) {
-        seedStrategy =
-          SEED_STRATEGY_MAP[cmdOptions.seed] ??
-          (cmdOptions.seed.startsWith("snapshot:") ? "SNAPSHOT" : undefined);
-      }
+      const seed = await parseSeedOption(cmdOptions.seed);
 
       if (mode !== "silent") {
         console.log();
-        console.log(colors.bold(`Creating ${branch} in ${projectName}`));
+        console.log(
+          colors.bold(
+            prNumber !== undefined
+              ? `Creating an environment for PR #${prNumber} in ${projectName}`
+              : `Creating ${branch} in ${projectName}`,
+          ),
+        );
       }
 
       // The same six steps as `provision`, shown the same way: one line each,
@@ -77,11 +102,15 @@ Examples:
             {
               projectId: project.id,
               branch,
+              prNumber,
+              baseBranch: cmdOptions.base,
               apps: cmdOptions.apps
                 ? cmdOptions.apps.split(",").map((s: string) => s.trim())
                 : undefined,
-              seedStrategy,
+              seedStrategy: seed?.strategy,
+              snapshotPath: seed?.snapshotPath,
               skipInstall: cmdOptions.skipInstall,
+              kind: cmdOptions.lite ? "LITE" : "FULL",
             },
             onProgress,
           ),
@@ -99,6 +128,10 @@ Examples:
           kind: env.kind,
           status: env.status,
           worktreePath: env.worktreePath,
+          baseBranch: env.baseBranch,
+          pullRequest: env.prNumber
+            ? { number: env.prNumber, title: env.prTitle, url: env.prUrl }
+            : null,
           databaseUrl: env.database?.url ?? null,
           ports: sortedPorts(env.ports).map(p => ({
             app: p.appName,
@@ -115,6 +148,13 @@ Examples:
       console.log();
       console.log(colors.bold("Environment:"), colors.cyan(env.name));
       console.log(colors.bold("Branch:"), env.branch);
+      if (env.prNumber) {
+        console.log(
+          colors.bold("Pull request:"),
+          `#${env.prNumber} ${env.prTitle ?? ""}`.trim(),
+        );
+        if (env.prUrl) console.log(colors.bold("URL:"), colors.cyan(env.prUrl));
+      }
       console.log(colors.bold("Worktree:"), env.worktreePath);
 
       if (env.database) {

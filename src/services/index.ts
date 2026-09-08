@@ -14,11 +14,15 @@ export type {
   CreateEnvProgress,
   EnvironmentKind,
 } from "./environment-service.js";
-export { ProcessService } from "./process-service.js";
-export type { ZombieProcess } from "./process-service.js";
+export { ProcessService, environmentLogFile } from "./process-service.js";
+export type { ZombieProcess, LogEntry } from "./process-service.js";
 export { ProxyService } from "./proxy-service.js";
 export { GitHubService } from "./github-service.js";
-export type { PullRequestInfo } from "./github-service.js";
+export type {
+  PullRequestInfo,
+  PullRequestSummary,
+  BranchSummary,
+} from "./github-service.js";
 export { HerdrService, toAgentName } from "./herdr-service.js";
 export type {
   HerdrStatus,
