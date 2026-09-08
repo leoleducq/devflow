@@ -66,8 +66,18 @@ the reversible operations; prefer them.
 
 - Every command that returns data takes `--json`: one JSON value on stdout,
   nothing else — no spinner, no progress. Use the helpers in
-  `src/lib/json-output.ts` (`printJson`, `failCommand`, `quietSpinner`,
+  `src/lib/json-output.ts` (`printJson`, `failCommand`, `startSpinner`,
   `redact`) rather than calling `console.log(JSON.stringify(...))`.
+- **Never prompt without going through `src/lib/interactive.ts`.** No prompt
+  library fails safely when stdin is a silent pipe, which is what a coding
+  agent gives you — they wait forever. `canPrompt()` decides, `askFor()` reads
+  a flag before asking, and both fail with `INPUT_REQUIRED` naming the flag
+  that would have answered the question. Any new prompt needs a flag too.
+- Colour goes through `src/lib/colors.ts` (picocolors), never a direct import:
+  NO_COLOR and non-TTY are handled there, once.
+- Multi-step work uses `runSteps` from `src/lib/task-list.ts` rather than a
+  spinner whose text mutates, so each step keeps its own state and timing.
+  Tables use `src/lib/table.ts`, which measures width ignoring colour codes.
 - Failures raised deliberately use `DevflowError` with a code from
   `src/lib/errors.ts`, so JSON callers can branch on the cause.
 - Secrets (`linearApiKey`, database passwords) are masked by `redact` before

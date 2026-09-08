@@ -29,8 +29,8 @@ Postgres containers.
 
 Add `--json` to any command that returns data: `list`, `doctor`, `provision`,
 `create`, `start`, `stop`, `teardown`, `destroy`, `activate`, `db`,
-`env-files`, `kill-zombies`, `config get`, `skill`, `setup-agents`, and
-`project list|get|inspect|issues`.
+`env-files`, `kill-zombies`, `config get`, `skill`, `setup-agents`, `init`,
+and `project list|get|inspect|issues|linear|add|remove`.
 
 The contract: one JSON value on stdout, nothing else. A failure prints
 `{"ok": false, "error": {"code", "message"}}` on **stderr** and exits non-zero.
@@ -38,7 +38,25 @@ Branch on `code`, not on the message:
 
 `NOT_AN_ENVIRONMENT` · `ENVIRONMENT_NOT_FOUND` · `PROJECT_NOT_FOUND` ·
 `ENVIRONMENT_NOT_RUNNING` · `NO_DATABASE` · `DOCKER_UNAVAILABLE` ·
-`TOOL_MISSING` · `INVALID_ARGUMENT` · `CONFIRMATION_REQUIRED` · `UNKNOWN`
+`TOOL_MISSING` · `INVALID_ARGUMENT` · `CONFIRMATION_REQUIRED` ·
+`INPUT_REQUIRED` · `UNKNOWN`
+
+## DevFlow never blocks on a prompt
+
+When stdin is not a terminal — which is every agent, pipe and CI run —
+DevFlow does not ask questions. It either uses the value you passed, or fails
+straight away with `INPUT_REQUIRED` (or `CONFIRMATION_REQUIRED`) naming the
+flag that would have answered it. Nothing hangs waiting for input.
+
+So if a command reports `INPUT_REQUIRED`, read the message: it tells you the
+exact flag to add. Destructive commands need `--yes`.
+
+```bash
+devflow init --name myapp --apps web,api -y      # register without any question
+devflow project linear myapp --api-key "$LINEAR_API_KEY" --team ENG --json
+devflow destroy <env-name> --yes                 # confirmation, non-interactively
+devflow setup-agents --yes                       # or --dry-run to see the plan first
+```
 
 ## Commands (run in the worktree, or pass the env name)
 
@@ -54,6 +72,8 @@ devflow destroy <env-name> --yes     # everything, including the worktree
 devflow start|stop [env-name]        # database container up / down
 devflow kill-zombies [--dry-run]     # orphaned next/turbo/tsx/vite processes
 devflow project issues <name> --json # open Linear issues with their branch names
+devflow project linear <name> --api-key <key> --team <id|key> [--project <id|name>] [--json]
+devflow completion zsh|bash|fish     # shell completion script on stdout
 devflow doctor --json                # tools, database, projects, orphaned containers
 ```
 
