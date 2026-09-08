@@ -1,7 +1,8 @@
 import { join } from "node:path";
-import { readFile } from "node:fs/promises";
+import { readFile, appendFile, mkdir, stat, rm } from "node:fs/promises";
 import { execa, type ResultPromise } from "execa";
 import type { PrismaClient } from "../db/types.js";
+import { devflowHome } from "../db/paths.js";
 
 type RunningProcess = {
   id: string;
@@ -18,6 +19,23 @@ export type LogEntry = {
 type LogSubscriber = (entry: LogEntry) => void;
 
 const MAX_LOG_LINES = 1000;
+
+/**
+ * Dev-server output also goes to a file per environment, not just the
+ * in-memory ring buffer.
+ *
+ * The desktop API could serve `/logs` from memory because it was one
+ * long-lived server. A CLI is not: the process that started the servers
+ * (`devflow run`, sitting in a herdr pane) is a different process from the
+ * one asking for the logs (`devflow logs`, run by an agent in another pane).
+ * The only thing the two share is the filesystem.
+ */
+const LOG_DIR = () => join(devflowHome(), "logs");
+export const environmentLogFile = (environmentId: string): string =>
+  join(LOG_DIR(), `${environmentId}.jsonl`);
+
+/** Rotate at this size so a week of `next dev` cannot fill the disk. */
+const MAX_LOG_BYTES = 8 * 1024 * 1024;
 
 export type ZombieProcess = { pid: number; command: string };
 
@@ -70,7 +88,66 @@ export class ProcessService {
     if (subs) {
       for (const cb of subs) cb(entry);
     }
+    // Fire and forget: a dev server must never block on DevFlow's logging,
+    // and a log line lost to a full disk is not worth failing a run over.
+    void this.appendToLogFile(environmentId, entry);
   }
+
+  /**
+   * Append one entry to the environment's log file, rotating when it grows
+   * past the cap. Writes are serialised per environment so two apps' output
+   * cannot interleave inside a single line.
+   */
+  private logWrites = new Map<string, Promise<void>>();
+
+  private appendToLogFile(environmentId: string, entry: LogEntry): void {
+    const previous = this.logWrites.get(environmentId) ?? Promise.resolve();
+    const next = previous
+      .then(async () => {
+        const file = environmentLogFile(environmentId);
+        await mkdir(LOG_DIR(), { recursive: true });
+        const size = await stat(file).then(
+          s => s.size,
+          () => 0,
+        );
+        // Truncating rather than keeping a `.1` file: these are dev-server
+        // logs, and nobody goes back eight megabytes for them.
+        if (size > MAX_LOG_BYTES) await rm(file, { force: true });
+        await appendFile(file, `${JSON.stringify(entry)}\n`);
+      })
+      .catch(() => undefined);
+    this.logWrites.set(environmentId, next);
+  }
+
+  /**
+   * The environment's persisted log, newest last. This is what another
+   * process — `devflow logs` — reads, since it cannot see the ring buffer of
+   * the `devflow run` that produced the output.
+   */
+  async readLogFile(
+    environmentId: string,
+    options: { app?: string; stream?: "stdout" | "stderr"; limit?: number } = {},
+  ): Promise<LogEntry[]> {
+    const content = await readFile(environmentLogFile(environmentId), "utf-8").catch(
+      () => "",
+    );
+    if (!content) return [];
+
+    const entries: LogEntry[] = [];
+    for (const line of content.split("\n")) {
+      if (!line) continue;
+      try {
+        const entry = JSON.parse(line) as LogEntry;
+        if (options.app && entry.app !== options.app) continue;
+        if (options.stream && entry.stream !== options.stream) continue;
+        entries.push(entry);
+      } catch {
+        // A half-written last line while a server is running: skip it.
+      }
+    }
+    return options.limit ? entries.slice(-options.limit) : entries;
+  }
+
 
   async startProcesses(
     environmentId: string,
