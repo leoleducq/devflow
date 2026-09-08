@@ -135,7 +135,7 @@ A checkout registered with `devflow create --lite` or `devflow provision --lite`
 
 Also: `template list\|add\|remove\|new <name> [template]` (scaffold a project from a template repo, optionally creating the GitHub repo with `--github`), `proxy` (port-forwarding daemon), `studio <env>` (Prisma Studio), `kill-zombies` (orphaned next/turbo/tsx/vite processes), `herdr sync`, `completion <shell>`.
 
-`project set` writes every field, so a CLI-only setup is never missing anything: `--apps`, `--default-apps`, `--app-ports web:3000,api:3005`, `--dev-commands`, `--default-base-branch`, `--db-env-var-name`, `--db-docker-image`, `--default-seed`, `--source-database-url`, `--package-manager` and the Linear fields. `--app-ports` matters most — the proxy and the `.env` port rewriting both depend on it; `devflow init` fills it in from your `dev` scripts, `.env.example` and `docker-compose.yml`, and `project inspect --apply` re-detects it later. Global settings (`config set <field> <value>`): `portRangeStart`, `portRangeSize`, `dbDefaultPort`, `dbSeedStrategy`, `worktreeLocation`, `dockerNetwork`, `dockerVolumePrefix`.
+`project set` writes every field, so a CLI-only setup is never missing anything: `--apps`, `--default-apps`, `--app-ports web:3000,api:3005`, `--dev-commands`, `--default-base-branch`, `--db-env-var-name`, `--db-docker-image`, `--default-seed`, `--source-database-url`, `--package-manager`, `--portless` and the Linear fields. `--app-ports` matters most — the proxy and the `.env` port rewriting both depend on it; `devflow init` fills it in from your `dev` scripts, `.env.example` and `docker-compose.yml`, and `project inspect --apply` re-detects it later. Global settings (`config set <field> <value>`): `portRangeStart`, `portRangeSize`, `dbDefaultPort`, `dbSeedStrategy`, `worktreeLocation`, `dockerNetwork`, `dockerVolumePrefix`.
 
 ## How it works
 
@@ -159,6 +159,18 @@ devflow create myapp leo/proj-123-fix-the-thing
 
 Branch names come from Linear, so the environment's branch links itself back to the issue. `--api-key`, `--team` and `--project` make the connection scriptable; without them it prompts. `project set` also takes `--linear-exclude-states` and `--linear-filter-labels` to narrow what `issues` shows. GitHub needs no configuration: `project prs` lists open pull requests through `gh`, and `devflow create <project> --pr <n>` takes the branch, base, title and URL from one.
 
+## portless (optional)
+
+[portless](https://github.com/vercel-labs/portless) puts named HTTPS URLs in front of local ports. Turn it on per project:
+
+```bash
+devflow project set myapp --portless true
+```
+
+Each app of each environment then gets `<app>.<env>.<project>.localhost` — `https://web.feat-login.myapp.localhost` — built from names DevFlow already stores, so re-provisioning the same branch rebuilds the same URL even though the allocated port changes. `.env` files carry it for cross-app references; `PORT=` stays numeric, because the dev server still binds a real port and portless only routes to it. `devflow status` and `devflow list --json` carry a `url` per port, which is the thing to read rather than guessing the port.
+
+Needs portless installed (it wants Node 24+) and its proxy running; `:443` needs sudo, and on a high port every URL carries that port — `devflow doctor` says which. If portless is missing or its proxy is down, environments quietly keep their plain `localhost:<port>` URLs: no environment operation fails because of portless.
+
 ## herdr (optional)
 
 DevFlow works standalone. If you use [herdr](https://herdr.dev), a terminal multiplexer that owns git worktrees:
@@ -172,7 +184,7 @@ You get a workspace per project, status and ports as sidebar tokens, new worktre
 
 ## Requirements
 
-**Node.js 20+** and **git**, plus **Docker** and **the project's own package manager** for FULL environments (LITE environments need neither). Optional: `lazysql` for `devflow db` (`--url` and `db query` work without it), `gh` for `create --pr` and `project prs`, `psql` for querying a database by hand, [herdr](https://herdr.dev). Installing runs `prisma generate`, which builds a platform-specific query engine, so the first install needs network access. `devflow doctor` reports what is missing; `npx @iziatask/devflow doctor` tries it without installing.
+**Node.js 20+** and **git**, plus **Docker** and **the project's own package manager** for FULL environments (LITE environments need neither). Optional: `lazysql` for `devflow db` (`--url` and `db query` work without it), `gh` for `create --pr` and `project prs`, `psql` for querying a database by hand, [herdr](https://herdr.dev), [portless](https://github.com/vercel-labs/portless). Installing runs `prisma generate`, which builds a platform-specific query engine, so the first install needs network access. `devflow doctor` reports what is missing; `npx @iziatask/devflow doctor` tries it without installing.
 
 **Known limitations.** Developed and tested on **macOS**; Windows is not supported. Detection is best on turborepo-style monorepos (`apps/*/package.json`, `.env.example`, `docker-compose.yml`); other layouts register fine, you just fill more in with `project set`. Port rewriting in `.env` files covers `PORT=` and `localhost:<port>` URLs — a bare `WEB_PORT=3000` is left alone.
 
