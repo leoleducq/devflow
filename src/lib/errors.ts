@@ -15,6 +15,7 @@ export type ErrorCode =
   | "TOOL_MISSING"
   | "INVALID_ARGUMENT"
   | "CONFIRMATION_REQUIRED"
+  | "INPUT_REQUIRED"
   | "UNKNOWN";
 
 /** An error DevFlow raised deliberately, carrying a code for JSON callers. */
