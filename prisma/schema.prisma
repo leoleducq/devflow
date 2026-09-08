@@ -50,24 +50,10 @@ model Project {
   linearFilterLabels  String  @default("[]")
 
   environments Environment[]
-  todos        Todo[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
   @@map("project")
-}
-
-model Todo {
-  id        String   @id @default(uuid())
-  title     String
-  done      Boolean  @default(false)
-  position  Int      @default(0)
-  projectId String
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("todo")
 }
 
 /// One git worktree, plus whatever DevFlow gave it.
