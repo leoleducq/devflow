@@ -20,11 +20,28 @@ export const activateCommand = new Command()
   )
   .option("--cwd <path>", "Resolve the environment from this checkout")
   .option("--none", "Deactivate: proxies forward nowhere")
+  .option("--show", "Print which environment is active, changing nothing")
   .option("--quiet", "Exit silently when --cwd is not an environment")
   .option("--json", "Machine-readable output")
   .action(async (envName: string | undefined, options) => {
     try {
       const config = await new ConfigService(prisma).getOrCreateConfig();
+
+      // Reading which environment is active is the other half of setting it,
+      // and the answer to "why is localhost:3000 the wrong app".
+      if (options.show) {
+        const current = config.activeEnvironmentId
+          ? await prisma.environment.findUnique({
+              where: { id: config.activeEnvironmentId },
+              select: { name: true },
+            })
+          : null;
+        if (options.json) printJson({ active: current?.name ?? null });
+        else if (current) console.log(colors.green(current.name));
+        else console.log(colors.dim("No active environment"));
+        return;
+      }
+
       if (options.none) {
         await prisma.devflowConfig.update({
           where: { id: config.id },
