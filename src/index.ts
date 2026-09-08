@@ -22,6 +22,7 @@ import { killZombiesCommand } from "./commands/kill-zombies.js";
 import { dbCommand } from "./commands/db.js";
 import { envFilesCommand } from "./commands/env-files.js";
 import { skillCommand } from "./commands/skill.js";
+import { version } from "./lib/version.js";
 
 const program = new Command();
 
@@ -30,7 +31,7 @@ program
   .description(
     "Environments for git worktrees: database, ports, .env files, dev servers",
   )
-  .version("0.1.0");
+  .version(version());
 
 /**
  * Nothing else creates the database, so every command starts by making sure
