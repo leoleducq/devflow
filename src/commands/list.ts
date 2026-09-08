@@ -1,8 +1,9 @@
 import { Command } from "commander";
-import chalk from "chalk";
+import { colors } from "../lib/colors.js";
 import { prisma } from "../db/index.js";
 import { EnvironmentService } from "../services/index.js";
-import { printJson, printJsonError, redact } from "../lib/json-output.js";
+import { failCommand, printJson, redact } from "../lib/json-output.js";
+import { printTable } from "../lib/table.js";
 
 export const listCommand = new Command()
   .name("list")
@@ -30,59 +31,54 @@ export const listCommand = new Command()
       }
 
       if (environments.length === 0) {
-        console.log(chalk.yellow("No environments found"));
+        console.log(colors.yellow("No environments found"));
         console.log(
-          chalk.dim("Provision this checkout with:"),
-          chalk.white("devflow provision"),
+          colors.dim("Provision this checkout with:"),
+          colors.white("devflow provision"),
         );
         return;
       }
 
+      // One row per environment rather than a paragraph each: the whole point
+      // of `list` is comparing them, and six labelled blocks do not compare.
+      const paint = (status: string): string =>
+        status === "RUNNING"
+          ? colors.green(status)
+          : status === "STOPPED"
+            ? colors.yellow(status)
+            : status === "ERROR"
+              ? colors.red(status)
+              : colors.gray(status);
+
       console.log();
-      console.log(chalk.bold.underline("Active Environments"));
+      printTable(
+        environments.map(env => [
+          colors.bold(env.name),
+          paint(env.status),
+          env.project?.name ?? colors.dim("unknown"),
+          env.branch,
+          env.database ? `:${env.database.port}` : colors.dim("-"),
+          env.ports.length > 0
+            ? env.ports
+                .map(p => `${p.appName}:${colors.cyan(String(p.port))}`)
+                .join(" ")
+            : colors.dim("-"),
+        ]),
+        {
+          columns: [
+            { header: "NAME" },
+            { header: "STATUS" },
+            { header: "PROJECT" },
+            { header: "BRANCH" },
+            { header: "DB" },
+            { header: "PORTS" },
+          ],
+        },
+      );
       console.log();
-
-      for (const env of environments) {
-        const statusColor =
-          env.status === "RUNNING"
-            ? chalk.green
-            : env.status === "STOPPED"
-              ? chalk.yellow
-              : env.status === "ERROR"
-                ? chalk.red
-                : chalk.gray;
-
-        console.log(chalk.bold(env.name), statusColor(`[${env.status}]`));
-        console.log(chalk.dim("  Project:"), env.project?.name ?? "unknown");
-        console.log(chalk.dim("  Branch:"), env.branch);
-
-        if (env.database) {
-          console.log(
-            chalk.dim("  Database:"),
-            `localhost:${env.database.port}`,
-          );
-        }
-
-        if (env.ports.length > 0) {
-          console.log(chalk.dim("  Services:"));
-          for (const port of env.ports) {
-            console.log(
-              `    ${port.appName}: ${chalk.cyan(`http://localhost:${port.port}`)}`,
-            );
-          }
-        }
-
-        console.log();
-      }
-
-      console.log(chalk.dim(`Total: ${environments.length} environment(s)`));
+      console.log(colors.dim(`${environments.length} environment(s)`));
     } catch (error) {
-      if (options.json) printJsonError(error);
-      else
-        console.error(
-          chalk.red(error instanceof Error ? error.message : String(error)),
-        );
-      process.exit(1);
+      failCommand(error, options.json);
     } finally {
       await prisma.$disconnect();
     }

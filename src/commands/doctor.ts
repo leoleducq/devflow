@@ -1,18 +1,19 @@
 import { Command } from "commander";
-import chalk from "chalk";
+import { colors } from "../lib/colors.js";
 import { execa } from "execa";
 import fs from "fs-extra";
 import { prisma, databaseFile, devflowHome } from "../db/index.js";
 import { checkTool, which } from "../lib/checks.js";
 import type { Check, CheckLevel } from "../lib/checks.js";
 import { printJson } from "../lib/json-output.js";
+import { table as tableLines } from "../lib/table.js";
 
 const MIN_NODE_MAJOR = 20;
 
 const SYMBOL: Record<CheckLevel, string> = {
-  ok: chalk.green("✔"),
-  warn: chalk.yellow("!"),
-  fail: chalk.red("✘"),
+  ok: colors.green("✔"),
+  warn: colors.yellow("!"),
+  fail: colors.red("✘"),
 };
 
 function checkNode(): Check {
@@ -244,18 +245,21 @@ export const doctorCommand = new Command()
         checks,
       });
     } else {
-      const width = Math.max(...checks.map(c => c.name.length));
+      // Hints belong under the row they explain, so the table is rendered a
+      // row at a time rather than in one block.
       console.log();
-      for (const check of checks) {
-        console.log(
-          `${SYMBOL[check.level]} ${chalk.bold(check.name.padEnd(width))}  ${
-            check.level === "ok" ? chalk.dim(check.detail) : check.detail
-          }`,
-        );
+      const lines = checks.map(check => [
+        SYMBOL[check.level],
+        colors.bold(check.name),
+        check.level === "ok" ? colors.dim(check.detail) : check.detail,
+      ]);
+      const rendered = tableLines(lines);
+      checks.forEach((check, i) => {
+        console.log(rendered[i]);
         if (check.hint && check.level !== "ok") {
-          console.log(`  ${chalk.dim("→")} ${chalk.dim(check.hint)}`);
+          console.log(`  ${colors.dim(`→ ${check.hint}`)}`);
         }
-      }
+      });
       console.log();
 
       const failed = checks.filter(c => c.level === "fail").length;
@@ -264,10 +268,10 @@ export const doctorCommand = new Command()
       const summary = `${passed} ok, ${warned} warning(s), ${failed} failure(s)`;
       console.log(
         failed > 0
-          ? chalk.red(summary)
+          ? colors.red(summary)
           : warned > 0
-            ? chalk.yellow(summary)
-            : chalk.green(summary),
+            ? colors.yellow(summary)
+            : colors.green(summary),
       );
     }
 

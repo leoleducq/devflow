@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import chalk from "chalk";
+import { colors } from "../lib/colors.js";
 import { prisma } from "../db/index.js";
 import {
   ConfigService,
@@ -8,6 +8,7 @@ import {
 } from "../services/config-service.js";
 import type { ConfigField, ConfigUpdate } from "../services/config-service.js";
 import { failCommand, printJson } from "../lib/json-output.js";
+import { printPairs } from "../lib/table.js";
 
 /** Fields stored as numbers; everything else in CONFIG_FIELDS is a string. */
 const NUMERIC_FIELDS = new Set<ConfigField>([
@@ -66,10 +67,9 @@ configCommand
         return;
       }
 
-      const width = Math.max(...CONFIG_FIELDS.map(f => f.length));
-      for (const [name, value] of Object.entries(values)) {
-        console.log(`${chalk.bold(name.padEnd(width))}  ${String(value)}`);
-      }
+      printPairs(
+        Object.entries(values).map(([name, value]) => [name, String(value)]),
+      );
     } catch (error) {
       failCommand(error, options.json);
     } finally {
@@ -95,10 +95,10 @@ configCommand
       } as ConfigUpdate);
 
       console.log(
-        `${chalk.green("✔")} ${chalk.bold(field)} = ${String(updated[field])}`,
+        `${colors.green("✔")} ${colors.bold(field)} = ${String(updated[field])}`,
       );
       if (field === "dbSeedStrategy") {
-        console.log(chalk.dim(`Valid values: ${SEED_STRATEGIES.join(", ")}`));
+        console.log(colors.dim(`Valid values: ${SEED_STRATEGIES.join(", ")}`));
       }
     } catch (error) {
       failCommand(error);
