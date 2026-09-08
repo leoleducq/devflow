@@ -92,7 +92,21 @@ devflow project linear <name> --api-key <key> --team <id|key> [--project <id|nam
 devflow template new <name> <repo>   # scaffold a project from a template and register it
 devflow completion zsh|bash|fish     # shell completion script on stdout
 devflow doctor --json                # tools, database, projects, orphaned containers
+devflow project set <name> --portless true   # named HTTPS URLs per app instead of localhost:<port>
 ```
+
+### portless (opt-in, off by default)
+
+When a project has it on, each app of an environment also gets a stable
+hostname — `<app>.<env>.<project>.localhost` — and the generated `.env` files
+carry that URL for cross-app references instead of `localhost:<port>`. `PORT=`
+stays numeric: the dev server still binds a real port, portless only routes to
+it.
+
+Do not assume the port: read the URL from `devflow status --json` (each entry
+of `ports` carries `url`) or `devflow list --json`. When portless is not
+installed, its proxy is down, or the project never opted in, `url` is the plain
+`http://localhost:<port>` and nothing else changes.
 
 `devflow run` holds the foreground and interleaves every app's output; Ctrl+C
 stops them all. `devflow run --json` prints the resolved environment and its
