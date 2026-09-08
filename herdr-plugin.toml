@@ -1,0 +1,127 @@
+# DevFlow inside herdr. A herdr workspace on a git worktree IS the
+# environment: herdr owns the checkout, DevFlow adds database, ports, .env,
+# dev servers. Link once: `herdr plugin link /path/to/devflow/herdr-plugin.toml`.
+id = "devflow"
+name = "DevFlow"
+version = "0.2.0"
+min_herdr_version = "0.7.0"
+description = "Databases, ports and dev servers for herdr worktrees; new environments from Linear"
+platforms = ["macos", "linux"]
+
+# Sidebar mirrors DevFlow after every server start.
+[[startup]]
+command = ["devflow", "herdr", "sync"]
+
+# A new worktree gets provisioned; a removed one is torn down first.
+[[events]]
+on = "worktree.created"
+command = ["sh", "scripts/herdr/on-worktree.sh", "created"]
+
+# A re-opened worktree gets its environment started and labelled again.
+[[events]]
+on = "worktree.opened"
+command = ["sh", "scripts/herdr/on-worktree.sh", "opened"]
+
+# Closing a workspace puts its environment to sleep (database stopped).
+[[events]]
+on = "workspace.closed"
+command = ["sh", "scripts/herdr/on-workspace-closed.sh"]
+
+[[events]]
+on = "worktree.removed"
+command = ["sh", "scripts/herdr/on-worktree.sh", "removed"]
+
+# The port proxies follow the workspace you are looking at.
+[[events]]
+on = "workspace.focused"
+command = ["sh", "scripts/herdr/on-workspace-focused.sh"]
+
+[[actions]]
+id = "provision"
+title = "DevFlow: provision this checkout"
+contexts = ["workspace"]
+command = ["sh", "scripts/herdr/in-workspace.sh", "devflow", "provision"]
+
+[[actions]]
+id = "teardown"
+title = "DevFlow: tear down (keep checkout)"
+contexts = ["workspace"]
+command = ["sh", "scripts/herdr/in-workspace.sh", "devflow", "teardown"]
+
+[[actions]]
+id = "start"
+title = "DevFlow: start environment"
+contexts = ["workspace"]
+command = ["sh", "scripts/herdr/in-workspace.sh", "devflow", "start-here"]
+
+[[actions]]
+id = "stop"
+title = "DevFlow: stop environment"
+contexts = ["workspace"]
+command = ["sh", "scripts/herdr/in-workspace.sh", "devflow", "stop-here"]
+
+[[actions]]
+id = "activate"
+title = "DevFlow: activate (proxies here)"
+contexts = ["workspace"]
+command = ["sh", "scripts/herdr/in-workspace.sh", "devflow", "activate-here"]
+
+[[actions]]
+id = "kill-zombies"
+title = "DevFlow: kill zombie dev servers"
+contexts = ["workspace"]
+command = ["sh", "scripts/herdr/in-workspace.sh", "devflow", "kill-zombies"]
+
+# lazysql on this environment's database, in its own tab.
+[[panes]]
+id = "db"
+title = "DevFlow: database (lazysql)"
+placement = "tab"
+command = ["sh", "scripts/herdr/in-workspace.sh", "devflow", "db"]
+
+# Dev servers in their own tab of the workspace; herdr keeps them alive.
+[[panes]]
+id = "run"
+title = "DevFlow: run dev servers"
+placement = "tab"
+command = ["sh", "scripts/herdr/in-workspace.sh", "devflow", "run"]
+
+[[panes]]
+id = "new-env-from-linear"
+title = "DevFlow: new environment from Linear issue"
+placement = "popup"
+width = "80%"
+height = 24
+command = ["sh", "scripts/herdr/new-env-from-linear.sh"]
+
+[[panes]]
+id = "help"
+title = "DevFlow: cheat sheet"
+placement = "popup"
+width = "70%"
+height = 26
+command = ["sh", "scripts/herdr/help.sh"]
+
+[[panes]]
+id = "open-worktree"
+title = "DevFlow: open worktree…"
+placement = "popup"
+width = "80%"
+height = 24
+command = ["sh", "scripts/herdr/open-worktree.sh"]
+
+[[panes]]
+id = "clean"
+title = "DevFlow: destroy environments…"
+placement = "popup"
+width = "80%"
+height = 24
+command = ["sh", "scripts/herdr/clean-envs.sh"]
+
+[[panes]]
+id = "proxy-log"
+title = "DevFlow: proxy log"
+placement = "popup"
+width = "80%"
+height = 20
+command = ["sh", "-c", "tail -n 200 -f \"$HOME/Library/Logs/devflow-proxy.log\""]
