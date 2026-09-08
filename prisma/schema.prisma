@@ -1,0 +1,173 @@
+// DevFlow's own state: the projects you registered, the environments living on
+// their worktrees, and the ports, containers and processes each one owns.
+//
+// It is a single SQLite file, by default ~/.devflow/devflow.db. Nothing here
+// is about the projects' own data — that lives in the Postgres containers
+// DevFlow starts per environment.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A repository DevFlow knows how to provision environments for.
+model Project {
+  id          String @id @default(uuid())
+  name        String @unique
+  path        String
+  type        String @default("TURBOREPO")
+  /// JSON array: every app under apps/.
+  apps        String @default("[]")
+  /// JSON array: the apps `devflow run` starts when none are named.
+  defaultApps String @default("[]")
+
+  /// Branch new environments are cut from when the branch does not exist yet.
+  defaultBaseBranch String @default("main")
+
+  /// Default seed strategy: COPY_MAIN, FRESH_MIGRATE or SNAPSHOT.
+  defaultSeed String?
+  /// Database the COPY_MAIN strategy dumps from.
+  sourceDatabaseUrl String?
+  /// The env var each app reads its connection string from.
+  dbEnvVarName      String  @default("DATABASE_URL")
+  dbDockerImage     String  @default("postgres:15-alpine")
+  /// JSON object app -> dev command, e.g. {"web":"next dev"}.
+  devCommands       String?
+  /// JSON object app -> the port it uses in the main checkout. Drives the
+  /// proxy and the localhost port rewriting in generated .env files.
+  appPorts          String?
+
+  linearApiKey        String?
+  linearTeamId        String?
+  linearProjectId     String?
+  /// JSON array of Linear workflow state names to hide from `project issues`.
+  linearExcludeStates String  @default("[\"Triage\",\"Backlog\"]")
+  /// JSON array of label names; empty means no label filter.
+  linearFilterLabels  String  @default("[]")
+
+  environments Environment[]
+  todos        Todo[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@map("project")
+}
+
+model Todo {
+  id        String   @id @default(uuid())
+  title     String
+  done      Boolean  @default(false)
+  position  Int      @default(0)
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("todo")
+}
+
+/// One git worktree, plus whatever DevFlow gave it.
+model Environment {
+  id           String  @id @default(uuid())
+  name         String  @unique
+  projectId    String
+  project      Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branch       String
+  baseBranch   String  @default("main")
+  worktreePath String
+  status       String  @default("CREATING")
+  /// "FULL" = worktree + db + ports + processes, "LITE" = worktree only.
+  kind         String  @default("FULL")
+  /// JSON array of the apps this environment runs.
+  apps         String  @default("[]")
+
+  prNumber Int?
+  prTitle  String?
+  prUrl    String?
+
+  database  EnvironmentDatabase?
+  ports     PortAllocation[]
+  processes ProcessInfo[]
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@map("environment")
+}
+
+/// The Postgres container backing one environment.
+model EnvironmentDatabase {
+  id            String      @id @default(uuid())
+  environmentId String      @unique
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  name          String
+  port          Int
+  host          String      @default("localhost")
+  user          String      @default("postgres")
+  password      String      @default("postgres")
+  url           String
+  containerName String
+
+  @@map("environment_database")
+}
+
+/// A port reserved for one app of one environment.
+model PortAllocation {
+  id            String      @id @default(uuid())
+  environmentId String
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  appName       String
+  port          Int         @unique
+
+  @@unique([environmentId, appName])
+  @@map("port_allocation")
+}
+
+/// A dev server started by `devflow run`.
+model ProcessInfo {
+  id            String      @id @default(uuid())
+  environmentId String
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  appName       String
+  pid           Int?
+  status        String      @default("RUNNING")
+  port          Int
+
+  @@unique([environmentId, appName])
+  @@map("process_info")
+}
+
+/// A repository new projects can be scaffolded from.
+model Template {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String   @default("")
+  repo        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("template")
+}
+
+/// Global settings. A single row.
+model DevflowConfig {
+  id                 String @id @default(uuid())
+  portRangeStart     Int    @default(3000)
+  portRangeSize      Int    @default(100)
+  dbDefaultPort      Int    @default(5432)
+  dbSeedStrategy     String @default("COPY_MAIN")
+  worktreeLocation   String @default(".devflow/worktrees")
+  dockerNetwork      String @default("devflow")
+  dockerVolumePrefix String @default("devflow")
+
+  /// Environment the port proxies forward to; applied by `devflow proxy`.
+  activeEnvironmentId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("devflow_config")
+}
