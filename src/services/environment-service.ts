@@ -17,6 +17,7 @@ import { ConfigService } from "./config-service.js";
 import { GitHubService } from "./github-service.js";
 import { environmentLogFile } from "./process-service.js";
 import { HerdrService } from "./herdr-service.js";
+import { PortlessService } from "./portless-service.js";
 
 export type EnvironmentKind = "FULL" | "LITE";
 
@@ -150,6 +151,7 @@ export class EnvironmentService {
   private readonly envFileService: EnvFileService;
   private readonly configService: ConfigService;
   private readonly herdrService: HerdrService;
+  private readonly portlessService: PortlessService;
 
   constructor(private readonly prisma: PrismaClient) {
     this.worktreeService = new WorktreeService();
@@ -158,6 +160,7 @@ export class EnvironmentService {
     this.envFileService = new EnvFileService();
     this.configService = new ConfigService(prisma);
     this.herdrService = new HerdrService();
+    this.portlessService = new PortlessService();
   }
 
   /**
@@ -189,6 +192,49 @@ export class EnvironmentService {
     })().catch(() => {
       // Not installed, or the server is down.
     });
+  }
+
+  /**
+   * Register a portless alias per app and return the URL each got, keyed by
+   * app. `{}` whenever the project did not opt in, portless is missing, or
+   * its proxy is down — the callers then write plain `localhost:<port>` URLs,
+   * which is exactly the behaviour of a project without portless.
+   *
+   * Never throws: a routing convenience must not fail provisioning.
+   */
+  private async resolvePortlessUrls(params: {
+    project: { name: string; portless: boolean };
+    envName: string;
+    ports: Record<string, number>;
+  }): Promise<Record<string, string>> {
+    if (!params.project.portless) return {};
+    try {
+      const status = await this.portlessService.status();
+      if (!status.installed || !status.running) return {};
+      return await this.portlessService.registerEnvironment({
+        environment: params.envName,
+        project: params.project.name,
+        ports: params.ports,
+      });
+    } catch {
+      return {};
+    }
+  }
+
+  /** Drop the environment's portless routes. Best-effort, like registering. */
+  private async releasePortlessAliases(env: {
+    name: string;
+    project: { name: string; portless: boolean } | null;
+    ports: { appName: string }[];
+  }): Promise<void> {
+    if (!env.project?.portless || env.ports.length === 0) return;
+    await this.portlessService
+      .removeEnvironment({
+        environment: env.name,
+        project: env.project.name,
+        apps: env.ports.map(p => p.appName),
+      })
+      .catch(() => undefined);
   }
 
   async createEnvironment(
@@ -496,6 +542,13 @@ export class EnvironmentService {
     }
     const portsMap: Record<string, number> = {};
     for (const p of env.ports) portsMap[p.appName] = p.port;
+    // Re-register rather than read back: the routes are the only place the
+    // hostname → port mapping lives, and a proxy restart forgets them.
+    const portlessUrls = await this.resolvePortlessUrls({
+      project: env.project,
+      envName: env.name,
+      ports: portsMap,
+    });
     await this.envFileService.generateEnvFiles({
       worktreePath: env.worktreePath,
       projectPath: env.project.path,
@@ -504,6 +557,7 @@ export class EnvironmentService {
       ports: portsMap,
       originalPorts:
         parseJsonObject<Record<string, number>>(env.project.appPorts) ?? {},
+      portlessUrls,
     });
   }
 
@@ -527,7 +581,7 @@ export class EnvironmentService {
   async teardownEnvironment(environmentId: string): Promise<void> {
     const env = await this.prisma.environment.findUnique({
       where: { id: environmentId },
-      include: { database: true, processes: true },
+      include: { database: true, processes: true, ports: true, project: true },
     });
     if (!env) {
       throw new Error(`Environment not found: ${environmentId}`);
@@ -536,6 +590,7 @@ export class EnvironmentService {
       where: { id: environmentId },
       data: { status: "DESTROYING" },
     });
+    await this.releasePortlessAliases(env);
     await this.releaseResources(env);
     await this.prisma.environment.delete({ where: { id: environmentId } });
   }
@@ -740,12 +795,17 @@ export class EnvironmentService {
       emit({ type: "step", id: "install", status: "skip" });
     } else {
       emit({ type: "step", id: "install", status: "start" });
-      await this.installDependencies(worktreePath);
+      await this.installDependencies(worktreePath, project);
       emit({ type: "step", id: "install", status: "done" });
     }
 
     // Generate .env files
     emit({ type: "step", id: "env", status: "start" });
+    const portlessUrls = await this.resolvePortlessUrls({
+      project,
+      envName,
+      ports: portsMap,
+    });
     await this.envFileService.generateEnvFiles({
       worktreePath,
       projectPath: project.path,
@@ -755,6 +815,7 @@ export class EnvironmentService {
       // Without this, cross-app URLs (API_URL, NEXT_PUBLIC_API_URL, CORS
       // lists) keep pointing at the main checkout's ports on first provision.
       originalPorts: appPorts,
+      portlessUrls,
     });
     emit({ type: "step", id: "env", status: "done" });
 
@@ -846,6 +907,13 @@ export class EnvironmentService {
           for (const p of env.ports) {
             portsMap[p.appName] = p.port;
           }
+          // Re-resolve too: this rewrite would otherwise put the plain
+          // ports back over the named URLs a portless project just got.
+          const portlessUrls = await this.resolvePortlessUrls({
+            project: env.project,
+            envName: env.name,
+            ports: portsMap,
+          });
           await this.envFileService.generateEnvFiles({
             worktreePath: env.worktreePath,
             projectPath: env.project.path,
@@ -855,6 +923,7 @@ export class EnvironmentService {
             originalPorts:
               parseJsonObject<Record<string, number>>(env.project.appPorts) ??
               {},
+            portlessUrls,
           });
         }
       }
@@ -908,7 +977,12 @@ export class EnvironmentService {
   async destroyEnvironment(environmentId: string): Promise<void> {
     const env = await this.prisma.environment.findUnique({
       where: { id: environmentId },
-      include: { database: true, project: true, processes: true },
+      include: {
+        database: true,
+        project: true,
+        processes: true,
+        ports: true,
+      },
     });
 
     if (!env) {
@@ -920,6 +994,7 @@ export class EnvironmentService {
       data: { status: "DESTROYING" },
     });
 
+    await this.releasePortlessAliases(env);
     await this.releaseResources(env);
 
     // Close the herdr workspace first: its shells hold the worktree open.

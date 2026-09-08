@@ -15,6 +15,16 @@ type EnvFileContext = {
    * environment and it runs on its own ports with no proxy in front.
    */
   originalPorts?: Record<string, number>;
+  /**
+   * app -> the named HTTPS URL portless serves it on, when the project opted
+   * in. Cross-app references use these instead of `localhost:<allocated>`, so
+   * `NEXT_PUBLIC_API_URL` and CORS lists carry a stable name rather than a
+   * port that changes every time the environment is re-provisioned.
+   *
+   * `PORT=` is deliberately left on the numeric port: portless routes to an
+   * already-listening server, so the dev server still binds a real port.
+   */
+  portlessUrls?: Record<string, string>;
 };
 
 export class EnvFileService {
@@ -52,7 +62,11 @@ export class EnvFileService {
     }
   }
 
-  /** `localhost:<original app port>` → `localhost:<allocated port>`. */
+  /**
+   * `localhost:<original app port>` → this environment's address for that
+   * app: its portless URL when the project opted in and the alias was
+   * registered, else `localhost:<allocated port>`.
+   */
   private rewriteLocalhostPorts(
     content: string,
     context: EnvFileContext,
@@ -60,15 +74,18 @@ export class EnvFileService {
     for (const [appName, original] of Object.entries(
       context.originalPorts ?? {},
     )) {
+      const portlessUrl = context.portlessUrls?.[appName];
       const allocated = context.ports[appName];
-      if (!allocated || allocated === original) continue;
+      // Without a portless URL there is nothing to do when the port did not
+      // move; with one, the scheme and host change even when it did not.
+      if (!portlessUrl && (!allocated || allocated === original)) continue;
       content = content.replace(
         new RegExp(
           `(https?://(?:localhost|127\\.0\\.0\\.1)):${original}(?=[/"'\\s,]|$)`,
           // `m`: most values end the line, and `$` must match there.
           "gm",
         ),
-        `$1:${allocated}`,
+        portlessUrl ?? `$1:${allocated}`,
       );
     }
     return content;
