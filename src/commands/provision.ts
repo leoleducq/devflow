@@ -9,11 +9,7 @@ import {
 } from "../services/index.js";
 import { failCommand, printJson } from "../lib/json-output.js";
 import { runSteps, renderMode } from "../lib/task-list.js";
-
-const SEED_STRATEGY_MAP: Record<string, string> = {
-  "copy-main": "COPY_MAIN",
-  fresh: "FRESH_MIGRATE",
-};
+import { parseSeedOption } from "../lib/seed-strategy.js";
 
 /**
  * `devflow provision [path]`: give an existing checkout everything it needs
@@ -55,10 +51,7 @@ Examples:
 
     try {
       const service = new EnvironmentService(prisma);
-      const seedStrategy = options.seed
-        ? (SEED_STRATEGY_MAP[options.seed] ??
-          (options.seed.startsWith("snapshot:") ? "SNAPSHOT" : undefined))
-        : undefined;
+      const seed = await parseSeedOption(options.seed);
 
       if (mode !== "silent") {
         console.log();
@@ -75,7 +68,8 @@ Examples:
               apps: options.apps
                 ? options.apps.split(",").map((s: string) => s.trim())
                 : undefined,
-              seedStrategy,
+              seedStrategy: seed?.strategy,
+              snapshotPath: seed?.snapshotPath,
               skipInstall: options.skipInstall,
               baseBranch: options.base,
               kind: options.lite ? "LITE" : "FULL",
@@ -93,7 +87,11 @@ Examples:
           operation: onProgress =>
             service.promoteEnvironment(
               env.id,
-              { seedStrategy, apps: options.apps?.split(",") },
+              {
+                seedStrategy: seed?.strategy,
+                snapshotPath: seed?.snapshotPath,
+                apps: options.apps?.split(","),
+              },
               onProgress,
             ),
         });

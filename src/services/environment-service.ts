@@ -1,5 +1,6 @@
 import { execa } from "execa";
 import { join, dirname } from "node:path";
+import { rm } from "node:fs/promises";
 import fs from "fs-extra";
 import type { PrismaClient, Environment, Project } from "../db/types.js";
 import { devflowHome } from "../db/paths.js";
@@ -14,6 +15,7 @@ import { PortService } from "./port-service.js";
 import { EnvFileService } from "./env-file-service.js";
 import { ConfigService } from "./config-service.js";
 import { GitHubService } from "./github-service.js";
+import { environmentLogFile } from "./process-service.js";
 import { HerdrService } from "./herdr-service.js";
 
 export type EnvironmentKind = "FULL" | "LITE";
@@ -25,6 +27,8 @@ type CreateEnvironmentOptions = {
   prNumber?: number;
   apps?: string[];
   seedStrategy?: string;
+  /** Dump to restore when seedStrategy is SNAPSHOT. */
+  snapshotPath?: string;
   skipInstall?: boolean;
   kind?: EnvironmentKind;
 };
@@ -57,6 +61,8 @@ type AdoptWorktreeOptions = {
   worktreePath: string;
   apps?: string[];
   seedStrategy?: string;
+  /** Dump to restore when seedStrategy is SNAPSHOT. */
+  snapshotPath?: string;
   skipInstall?: boolean;
   baseBranch?: string;
   /** LITE records the checkout without ports, database or install. */
@@ -297,6 +303,7 @@ export class EnvironmentService {
           project,
           apps,
           seedStrategy: options.seedStrategy,
+          snapshotPath: options.snapshotPath,
           skipInstall: options.skipInstall ?? false,
           emit,
         });
@@ -432,6 +439,7 @@ export class EnvironmentService {
         project,
         apps,
         seedStrategy: options.seedStrategy,
+        snapshotPath: options.snapshotPath,
         skipInstall: options.skipInstall ?? false,
         emit,
       });
@@ -534,6 +542,7 @@ export class EnvironmentService {
 
   /** Kill the environment's processes and drop its database container. */
   private async releaseResources(env: {
+    id: string;
     processes: { pid: number | null; status: string }[];
     database: { name: string } | null;
   }): Promise<void> {
@@ -541,6 +550,11 @@ export class EnvironmentService {
     if (env.database) {
       await this.dockerService.destroyContainer(env.database.name);
     }
+    // The dev-server output outlives the processes on disk; an environment
+    // whose resources are gone has no logs anyone can still act on.
+    await rm(environmentLogFile(env.id), { force: true }).catch(
+      () => undefined,
+    );
   }
 
   /**
@@ -573,7 +587,11 @@ export class EnvironmentService {
    */
   async promoteEnvironment(
     environmentId: string,
-    options: { seedStrategy?: string; apps?: string[] } = {},
+    options: {
+      seedStrategy?: string;
+      snapshotPath?: string;
+      apps?: string[];
+    } = {},
     onProgress?: OnProgress,
   ): Promise<Environment> {
     const emit = (event: CreateEnvProgress) => onProgress?.(event);
@@ -622,6 +640,7 @@ export class EnvironmentService {
         project,
         apps,
         seedStrategy: options.seedStrategy,
+        snapshotPath: options.snapshotPath,
         skipInstall: hasNodeModules,
         emit,
       });
@@ -662,6 +681,7 @@ export class EnvironmentService {
     project: Project;
     apps: string[];
     seedStrategy?: string;
+    snapshotPath?: string;
     skipInstall: boolean;
     emit: (event: CreateEnvProgress) => void;
   }): Promise<void> {
@@ -675,6 +695,7 @@ export class EnvironmentService {
     project: Project;
     apps: string[];
     seedStrategy?: string;
+    snapshotPath?: string;
     skipInstall: boolean;
     emit: (event: CreateEnvProgress) => void;
   }): Promise<void> {
@@ -760,6 +781,7 @@ export class EnvironmentService {
       await this.dockerService.seedDatabase(
         { worktreePath, database: dbRecord },
         seedStrategy as "COPY_MAIN" | "FRESH_MIGRATE" | "SNAPSHOT",
+        { snapshotPath: params.snapshotPath },
       );
     }
     emit({ type: "step", id: "seed", status: "done" });
