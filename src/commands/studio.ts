@@ -1,11 +1,12 @@
 import { Command } from "commander";
-import chalk from "chalk";
-import ora from "ora";
+import { colors } from "../lib/colors.js";
 import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import fs from "fs-extra";
 import { EnvironmentService } from "../services/index.js";
 import { prisma } from "../db/index.js";
+import { startSpinner, failCommand } from "../lib/json-output.js";
+import { DevflowError } from "../lib/errors.js";
 
 export const studioCommand = new Command()
   .name("studio")
@@ -13,65 +14,70 @@ export const studioCommand = new Command()
   .argument("<env-name>", "Environment name")
   .option("-p, --port <port>", "Prisma Studio port", "5555")
   .action(async (envName: string, options: { port: string }) => {
-    const spinner = ora("Loading environment...").start();
-
-    const envService = new EnvironmentService(prisma);
-    const env = await envService.getEnvironmentByName(envName);
-
-    if (!env) {
-      spinner.fail(chalk.red(`Environment '${envName}' not found`));
-      process.exit(1);
-    }
-
-    if (!env.database) {
-      spinner.fail(chalk.red(`Environment '${envName}' has no database`));
-      process.exit(1);
-    }
-
-    // Find the prisma schema in the worktree
-    const possiblePaths = [
-      join(env.worktreePath, "packages", "database", "prisma", "schema.prisma"),
-      join(env.worktreePath, "prisma", "schema.prisma"),
-    ];
-
-    let schemaPath: string | undefined;
-    for (const path of possiblePaths) {
-      if (await fs.pathExists(path)) {
-        schemaPath = path;
-        break;
-      }
-    }
-
-    if (!schemaPath) {
-      spinner.fail(chalk.red("Prisma schema not found in worktree"));
-      process.exit(1);
-    }
-
-    spinner.succeed(chalk.green("Launching Prisma Studio"));
-
-    console.log();
-    console.log(chalk.bold("Database:"), chalk.cyan(env.database.url));
-    console.log(
-      chalk.bold("Studio:"),
-      chalk.cyan(`http://localhost:${options.port}`),
-    );
-    console.log();
-    console.log(chalk.dim("Press Ctrl+C to stop"));
+    const spinner = startSpinner("Loading environment…");
 
     try {
-      execFileSync(
-        "pnpm",
-        ["exec", "prisma", "studio", "--port", options.port],
-        {
-          cwd: dirname(schemaPath),
-          env: {
-            ...process.env,
-            DATABASE_URL: env.database.url,
-          },
-          stdio: "inherit",
-        },
+      const envService = new EnvironmentService(prisma);
+      const env = await envService.getEnvironmentByName(envName);
+
+      if (!env)
+        throw new DevflowError(
+          "ENVIRONMENT_NOT_FOUND",
+          `Environment '${envName}' not found`,
+        );
+      if (!env.database)
+        throw new DevflowError(
+          "NO_DATABASE",
+          `Environment '${envName}' has no database`,
+        );
+
+      // Find the prisma schema in the worktree.
+      const possiblePaths = [
+        join(env.worktreePath, "packages", "database", "prisma", "schema.prisma"),
+        join(env.worktreePath, "prisma", "schema.prisma"),
+      ];
+
+      let schemaPath: string | undefined;
+      for (const path of possiblePaths) {
+        if (await fs.pathExists(path)) {
+          schemaPath = path;
+          break;
+        }
+      }
+
+      if (!schemaPath) throw new Error("Prisma schema not found in worktree");
+
+      spinner.succeed("Launching Prisma Studio");
+
+      console.log();
+      console.log(colors.bold("Database:"), colors.cyan(env.database.url));
+      console.log(
+        colors.bold("Studio:"),
+        colors.cyan(`http://localhost:${options.port}`),
       );
-    } catch {
-      // User pressed Ctrl+C
+      console.log();
+      console.log(colors.dim("Press Ctrl+C to stop"));
+
+      try {
+        execFileSync(
+          "pnpm",
+          ["exec", "prisma", "studio", "--port", options.port],
+          {
+            cwd: dirname(schemaPath),
+            env: {
+              ...process.env,
+              DATABASE_URL: env.database.url,
+            },
+            stdio: "inherit",
+          },
+        );
+      } catch {
+        // User pressed Ctrl+C.
+      }
+    } catch (error) {
+      spinner.stop();
+      failCommand(error);
+    } finally {
+      await prisma.$disconnect();
     }
   });

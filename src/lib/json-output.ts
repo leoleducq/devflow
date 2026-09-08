@@ -1,6 +1,5 @@
-import chalk from "chalk";
-import ora from "ora";
-import type { Ora } from "ora";
+import * as clack from "@clack/prompts";
+import { colors } from "./colors.js";
 import { errorCode } from "./errors.js";
 
 /**
@@ -31,25 +30,116 @@ export const printJsonError = (error: unknown): void => {
 };
 
 /**
+ * The one place a failure becomes text for a person to read.
+ *
+ * Every command routes here, so an error looks the same wherever it came
+ * from, and the code — the thing that tells "install Docker" apart from
+ * "pass --yes" — is never dropped just because the caller wanted prose.
+ */
+export const printHumanError = (error: unknown): void => {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = errorCode(error);
+  process.stderr.write(
+    `${colors.red("✘")} ${message}${code === "UNKNOWN" ? "" : ` ${colors.dim(`[${code}]`)}`}\n`,
+  );
+};
+
+/**
  * Report a failure the way the caller asked for it, then exit non-zero. Every
  * command ends here, so the coded object on stderr is the single shape a JSON
  * caller has to handle.
  */
 export const failCommand = (error: unknown, json?: boolean): never => {
   if (json) printJsonError(error);
-  else
-    console.error(
-      chalk.red(error instanceof Error ? error.message : String(error)),
-    );
+  else printHumanError(error);
   process.exit(1);
 };
 
 /**
- * A spinner that draws nothing in JSON mode. Progress on stdout would corrupt
- * the document; progress on stderr would still surprise a caller reading both.
+ * A single-step spinner that draws nothing in JSON mode.
+ *
+ * Progress on stdout would corrupt the document; progress on stderr would
+ * still surprise a caller reading both. Multi-step work uses the task list in
+ * `task-list.ts` instead — this is for the operations that really are one
+ * opaque wait.
+ *
+ * clack's spinner backs it rather than ora, so the wizards and the spinners
+ * share one visual language, and it degrades to plain lines off a TTY where
+ * ora would emit frames nobody redraws.
  */
-export const quietSpinner = (text: string, json?: boolean): Ora =>
-  ora({ text, isSilent: !!json }).start();
+export type Spinner = {
+  start: (text?: string) => void;
+  update: (text: string) => void;
+  succeed: (text: string) => void;
+  fail: (text: string) => void;
+  stop: () => void;
+};
+
+export const quietSpinner = (text: string, json?: boolean): Spinner => {
+  if (json) {
+    return {
+      start: () => {},
+      update: () => {},
+      succeed: () => {},
+      fail: () => {},
+      stop: () => {},
+    };
+  }
+
+  // Off a TTY there is nothing to animate: print the milestones as lines so
+  // a log keeps the sequence instead of a burst of escape codes.
+  if (!process.stdout.isTTY || process.env.CI) {
+    let current = text;
+    return {
+      start: (next?: string) => {
+        current = next ?? current;
+        console.log(colors.dim(`… ${current}`));
+      },
+      update: (next: string) => {
+        current = next;
+        console.log(colors.dim(`… ${current}`));
+      },
+      succeed: (message: string) =>
+        console.log(`${colors.green("✔")} ${message}`),
+      fail: (message: string) => console.log(`${colors.red("✘")} ${message}`),
+      stop: () => {},
+    };
+  }
+
+  const spinner = clack.spinner();
+  let running = false;
+  return {
+    start: (next?: string) => {
+      if (running) return;
+      running = true;
+      spinner.start(next ?? text);
+    },
+    update: (next: string) => {
+      if (running) spinner.message(next);
+    },
+    succeed: (message: string) => {
+      if (running) spinner.stop(`${colors.green("✔")} ${message}`);
+      else console.log(`${colors.green("✔")} ${message}`);
+      running = false;
+    },
+    fail: (message: string) => {
+      if (running) spinner.error(`${colors.red("✘")} ${message}`);
+      else console.log(`${colors.red("✘")} ${message}`);
+      running = false;
+    },
+    stop: () => {
+      if (running) spinner.stop("");
+      running = false;
+    },
+  };
+};
+
+/** Start a spinner immediately, the way `ora(...).start()` used to read. */
+export const startSpinner = (text: string, json?: boolean): Spinner => {
+  const spinner = quietSpinner(text, json);
+  spinner.start();
+  return spinner;
+};
 
 /**
  * Secrets DevFlow stores for a project but must not hand to whoever asked for
