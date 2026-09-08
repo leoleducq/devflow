@@ -66,10 +66,16 @@ export class WorktreeService {
     } else if (hasLocalBranch) {
       // Local branch exists — use it as-is (e.g. PR branch already checked out)
     } else {
-      // Branch doesn't exist anywhere — create from baseBranch
-      await execa("git", ["branch", branch, `origin/${baseBranch}`], {
-        cwd: projectPath,
-      });
+      // Branch doesn't exist anywhere — create from baseBranch. Prefer the
+      // remote ref, but fall back to the local branch: a repository with no
+      // remote (or one that has never been fetched) still has to work.
+      await execa(
+        "git",
+        ["branch", branch, await this.baseRef(projectPath, baseBranch)],
+        {
+          cwd: projectPath,
+        },
+      );
     }
 
     await execa("git", ["worktree", "add", worktreePath, branch], {
@@ -77,6 +83,30 @@ export class WorktreeService {
     });
 
     return worktreePath;
+  }
+
+  /**
+   * The ref a new branch is cut from: `origin/<base>` when the remote has it,
+   * otherwise the local `<base>`. Throws only when neither exists, which is a
+   * genuine misconfiguration worth reporting clearly.
+   */
+  private async baseRef(
+    projectPath: string,
+    baseBranch: string,
+  ): Promise<string> {
+    for (const ref of [`origin/${baseBranch}`, baseBranch]) {
+      try {
+        await execa("git", ["rev-parse", "--verify", ref], {
+          cwd: projectPath,
+        });
+        return ref;
+      } catch {
+        // Try the next candidate.
+      }
+    }
+    throw new Error(
+      `Base branch '${baseBranch}' not found, locally or on origin. Set the project's base branch with: devflow project set <name> --default-base-branch <branch>`,
+    );
   }
 
   async removeWorktree(
@@ -117,7 +147,10 @@ export class WorktreeService {
     return stdout.trim();
   }
 
-  async getDiff(worktreePath: string, baseBranch = DEFAULT_BASE_BRANCH): Promise<string> {
+  async getDiff(
+    worktreePath: string,
+    baseBranch = DEFAULT_BASE_BRANCH,
+  ): Promise<string> {
     await this.fetchBaseBranch(worktreePath, baseBranch);
     const diffRef = await this.resolveDiffRef(worktreePath, baseBranch);
     const mergeBase = await this.getMergeBase(worktreePath, diffRef);
