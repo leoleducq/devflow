@@ -22,16 +22,38 @@ import { killZombiesCommand } from "./commands/kill-zombies.js";
 import { dbCommand } from "./commands/db.js";
 import { envFilesCommand } from "./commands/env-files.js";
 import { skillCommand } from "./commands/skill.js";
+import { setupAgentsCommand } from "./commands/setup-agents.js";
 import { version } from "./lib/version.js";
+import { skillIsInstalled } from "./lib/skill-presence.js";
 
 const program = new Command();
+
+/**
+ * Most of DevFlow's users are coding agents, and most of them arrive with no
+ * skill installed and nothing but `--help` to go on. Three lines there cost a
+ * human nothing and save an agent a dozen exploratory invocations.
+ *
+ * Dropped once the skill is installed somewhere on this machine: an agent
+ * that already has the full instructions does not need to be told twice, and
+ * the advice is stale the moment it is followed.
+ */
+const agentFooter = (): string =>
+  skillIsInstalled()
+    ? ""
+    : [
+        "",
+        "Are you an AI agent? Run `devflow skill` to read the DevFlow skill,",
+        "or `devflow setup-agents` to install it for every agent on this machine.",
+        "Machine-readable output: add --json to any command that returns data.",
+      ].join("\n");
 
 program
   .name("devflow")
   .description(
     "Environments for git worktrees: database, ports, .env files, dev servers",
   )
-  .version(version());
+  .version(version())
+  .addHelpText("after", agentFooter);
 
 /**
  * Nothing else creates the database, so every command starts by making sure
@@ -62,6 +84,7 @@ program.addCommand(killZombiesCommand);
 program.addCommand(dbCommand);
 program.addCommand(envFilesCommand);
 program.addCommand(skillCommand);
+program.addCommand(setupAgentsCommand);
 
 program.on("command:*", () => {
   console.error(chalk.red(`Invalid command: ${program.args.join(" ")}`));

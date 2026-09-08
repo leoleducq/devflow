@@ -8,6 +8,8 @@ import {
   inspectForRegistration,
   registerProject,
 } from "../lib/register-project.js";
+import { skillIsInstalled } from "../lib/skill-presence.js";
+import { failCommand } from "../lib/json-output.js";
 
 /**
  * Only what `init` itself needs. The full sweep — orphaned containers, the
@@ -107,11 +109,21 @@ export const initCommand = new Command()
       );
       console.log(`  ${chalk.dim("check the whole setup")}     devflow doctor`);
       console.log();
+
+      // Offered, never done: installing files into someone's home directory
+      // is their decision, and `setup-agents` asks again before it writes.
+      if (!skillIsInstalled()) {
+        console.log(chalk.bold("Working with coding agents?"));
+        console.log(
+          `  ${chalk.dim("teach every agent on this machine")}  devflow setup-agents`,
+        );
+        console.log(
+          `  ${chalk.dim("or just read the skill yourself")}    devflow skill`,
+        );
+        console.log();
+      }
     } catch (error) {
-      console.error(
-        chalk.red(error instanceof Error ? error.message : String(error)),
-      );
-      process.exit(1);
+      failCommand(error);
     } finally {
       await prisma.$disconnect();
     }

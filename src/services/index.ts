@@ -30,3 +30,15 @@ export type {
 export { TemplateService } from "./template-service.js";
 export type { ProjectInspection } from "./template-service.js";
 export { LinearService } from "./linear-service.js";
+export {
+  AgentSkillsService,
+  userTargets,
+  projectTargets,
+} from "./agent-skills-service.js";
+export type {
+  AgentTarget,
+  SkillOutcome,
+  SkillAction,
+  SkillScope,
+  SyncOptions,
+} from "./agent-skills-service.js";

@@ -1,11 +1,12 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import { prisma } from "../db/index.js";
-import { HerdrService, sortedPorts } from "../services/index.js";
-import fs from "fs-extra";
-import os from "node:os";
-import path from "node:path";
-import { skillPath } from "../lib/package-paths.js";
+import {
+  AgentSkillsService,
+  HerdrService,
+  sortedPorts,
+} from "../services/index.js";
+import { version } from "../lib/version.js";
 
 /**
  * `devflow herdr sync`: make herdr's sidebar agree with DevFlow. Every project
@@ -56,7 +57,13 @@ const syncCommand = new Command()
         console.error(chalk.yellow(`${env.name}: ${String(error)}`));
       }
     }
-    const skills = await installSkills();
+    // Same installer as `devflow setup-agents`, so linking the plugin is
+    // enough for the agents on this machine to know how DevFlow works.
+    const skills = (
+      await new AgentSkillsService(version()).install()
+    ).filter(
+      o => o.action === "installed" || o.action === "updated",
+    ).length;
     console.log(
       chalk.green(
         `Synced ${projects.length} projects, labelled ${labelled} open environments, ${skills} agent skill(s) refreshed`,
@@ -64,34 +71,6 @@ const syncCommand = new Command()
     );
     await prisma.$disconnect();
   });
-
-/**
- * Where each agent reads global skills. Refreshed on every sync so linking
- * the plugin is enough for agents to know how DevFlow works; there is no way
- * to extend herdr's own skill text from a plugin.
- */
-const SKILL_DIRS = [
-  path.join(os.homedir(), ".claude", "skills", "devflow"),
-  path.join(os.homedir(), ".pi", "agent", "skills", "devflow"),
-  path.join(os.homedir(), ".codex", "skills", "devflow"),
-];
-
-const installSkills = async (): Promise<number> => {
-  const text = await fs.readFile(skillPath(), "utf8");
-  let written = 0;
-  for (const dir of SKILL_DIRS) {
-    // Only agents that are set up: a missing parent means the agent is absent.
-    if (!(await fs.pathExists(path.dirname(dir)))) continue;
-    await fs.ensureDir(dir);
-    const target = path.join(dir, "SKILL.md");
-    const current = await fs.readFile(target, "utf8").catch(() => "");
-    if (current !== text) {
-      await fs.writeFile(target, text);
-      written += 1;
-    }
-  }
-  return written;
-};
 
 export const herdrCommand = new Command()
   .name("herdr")
