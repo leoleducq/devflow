@@ -188,8 +188,12 @@ An environment that has never been run has no logs.
   database URL and ports back. Restart the dev servers afterwards — Next.js
   reads `NEXT_PUBLIC_*` at startup.
 - `devflow db --url` works without lazysql installed; plain `devflow db` needs it.
-- A FULL environment needs `pnpm` and Docker on PATH. `devflow doctor --json`
-  says which of them is missing.
+- A FULL environment needs Docker and the project's own package manager on
+  PATH. DevFlow reads that from the checkout — the `packageManager` field in
+  its root `package.json`, then its lock file, then npm — and `devflow project
+  set <name> --package-manager <pnpm|npm|yarn|bun>` pins it when the guess is
+  wrong. `devflow doctor --json` names the manager each project needs and says
+  whether it is installed.
 - `devflow list --json` and `project get --json` mask stored secrets as
   `"[redacted]"`; they are not a way to read an API key back.
 

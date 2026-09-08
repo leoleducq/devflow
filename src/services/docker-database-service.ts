@@ -2,6 +2,20 @@ import { execa } from "execa";
 import { join } from "node:path";
 import fs from "fs-extra";
 import type { PrismaClient } from "../db/types.js";
+import {
+  resolvePackageManager,
+  execBinaryArgv,
+} from "../lib/package-manager.js";
+
+/**
+ * A worktree whose Prisma commands have to run. `packageManager` is the
+ * project's pinned choice; undefined or null means detect it from the
+ * checkout, which is what every project that never set one gets.
+ */
+type PrismaTarget = {
+  worktreePath: string;
+  packageManager?: string | null;
+};
 
 type DatabaseContainerConfig = {
   name: string;
@@ -135,8 +149,7 @@ export class DockerDatabaseService {
   }
 
   async seedDatabase(
-    env: {
-      worktreePath: string;
+    env: PrismaTarget & {
       database: { name: string; user: string; url: string };
     },
     strategy: "COPY_MAIN" | "FRESH_MIGRATE" | "SNAPSHOT",
@@ -273,15 +286,27 @@ export class DockerDatabaseService {
     return null;
   }
 
-  async applyMigrations(env: {
-    worktreePath: string;
-    database: { url: string };
-  }): Promise<void> {
+  /** `prisma migrate deploy`, spelled for the project's package manager. */
+  private async prismaArgv(
+    env: PrismaTarget,
+    args: string[],
+  ): Promise<{ command: string; args: string[] }> {
+    const manager = await resolvePackageManager(
+      env.worktreePath,
+      env.packageManager,
+    );
+    return execBinaryArgv(manager, "prisma", args);
+  }
+
+  async applyMigrations(
+    env: PrismaTarget & { database: { url: string } },
+  ): Promise<void> {
     const schemaDir = await this.findPrismaSchemaDir(env.worktreePath);
     if (!schemaDir) return;
 
+    const migrate = await this.prismaArgv(env, ["migrate", "deploy"]);
     try {
-      await execa("pnpm", ["exec", "prisma", "migrate", "deploy"], {
+      await execa(migrate.command, migrate.args, {
         cwd: schemaDir,
         env: { DATABASE_URL: env.database.url },
       });
@@ -290,23 +315,24 @@ export class DockerDatabaseService {
     }
   }
 
-  private async runFreshMigrations(env: {
-    worktreePath: string;
-    database: { url: string };
-  }): Promise<void> {
+  private async runFreshMigrations(
+    env: PrismaTarget & { database: { url: string } },
+  ): Promise<void> {
     const schemaDir = await this.findPrismaSchemaDir(env.worktreePath);
     // No Prisma in this project: the container is up and empty, which is all
     // FRESH_MIGRATE can mean here. Failing would make the strategy unusable
     // for every project that manages its schema some other way.
     if (!schemaDir) return;
 
-    await execa("pnpm", ["exec", "prisma", "migrate", "deploy"], {
+    const migrate = await this.prismaArgv(env, ["migrate", "deploy"]);
+    await execa(migrate.command, migrate.args, {
       cwd: schemaDir,
       env: { DATABASE_URL: env.database.url },
     });
 
+    const seed = await this.prismaArgv(env, ["db", "seed"]);
     try {
-      await execa("pnpm", ["exec", "prisma", "db", "seed"], {
+      await execa(seed.command, seed.args, {
         cwd: schemaDir,
         env: { DATABASE_URL: env.database.url },
       });

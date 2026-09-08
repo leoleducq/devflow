@@ -3,6 +3,10 @@ import { readFile, appendFile, mkdir, stat, rm } from "node:fs/promises";
 import { execa, type ResultPromise } from "execa";
 import type { PrismaClient } from "../db/types.js";
 import { devflowHome } from "../db/paths.js";
+import {
+  resolvePackageManager,
+  execBinaryArgv,
+} from "../lib/package-manager.js";
 
 type RunningProcess = {
   id: string;
@@ -157,6 +161,7 @@ export class ProcessService {
     databaseUrl: string,
     dbEnvVarName: string = "DATABASE_URL",
     devCommands: Record<string, string> = {},
+    packageManager?: string | null,
   ): Promise<void> {
     const processes: RunningProcess[] = [];
 
@@ -172,6 +177,7 @@ export class ProcessService {
         databaseUrl,
         dbEnvVarName,
         devCommands[app],
+        packageManager,
       );
       if (handle) processes.push(handle);
     }
@@ -192,6 +198,7 @@ export class ProcessService {
     databaseUrl: string,
     dbEnvVarName: string = "DATABASE_URL",
     devCommand?: string,
+    packageManager?: string | null,
   ): Promise<void> {
     const handle = await this.spawnAppProcess(
       environmentId,
@@ -201,6 +208,7 @@ export class ProcessService {
       databaseUrl,
       dbEnvVarName,
       devCommand,
+      packageManager,
     );
     if (!handle) return;
 
@@ -224,6 +232,7 @@ export class ProcessService {
     databaseUrl: string,
     dbEnvVarName: string,
     devCommand?: string,
+    packageManager?: string | null,
   ): Promise<RunningProcess | null> {
     try {
       // Kill any existing process on this port before starting
@@ -238,8 +247,8 @@ export class ProcessService {
         ),
       );
 
-      // When launched from Finder/Tauri, PATH may be minimal and miss
-      // pnpm/node/git. Augment it with common Homebrew/user paths.
+      // When launched from Finder/Tauri, PATH may be minimal and miss the
+      // package manager, node or git. Augment it with common install paths.
       const home = process.env.HOME || "";
       const extraPaths = [
         "/opt/homebrew/bin",
@@ -247,6 +256,7 @@ export class ProcessService {
         `${home}/.local/bin`,
         `${home}/Library/pnpm`,
         `${home}/.bun/bin`,
+        `${home}/.yarn/bin`,
       ];
       const currentPath = parentEnv.PATH || "";
       const pathParts = currentPath.split(":").filter(Boolean);
@@ -267,24 +277,30 @@ export class ProcessService {
         [dbEnvVarName]: databaseUrl,
       };
 
-      let childProcess: ResultPromise;
+      const manager = await resolvePackageManager(worktreePath, packageManager);
 
-      if (devCommand) {
-        const parts = devCommand.split(/\s+/);
-        childProcess = execa("pnpm", ["exec", ...parts], {
-          cwd: join(worktreePath, "apps", app),
-          env: envVars,
-          detached: true,
-          stdio: ["ignore", "pipe", "pipe"],
-        });
-      } else {
-        childProcess = execa("pnpm", ["turbo", "run", "dev", "--filter", app], {
-          cwd: worktreePath,
-          env: envVars,
-          detached: true,
-          stdio: ["ignore", "pipe", "pipe"],
-        });
-      }
+      // A project-configured dev command names a binary from the app's own
+      // dependencies (`next dev`, `tsx watch src`); without one, turbo drives
+      // the app's `dev` script from the repo root.
+      const [argv, cwd] = devCommand
+        ? [
+            ((): { command: string; args: string[] } => {
+              const [binary, ...rest] = devCommand.split(/\s+/).filter(Boolean);
+              return execBinaryArgv(manager, binary ?? "", rest);
+            })(),
+            join(worktreePath, "apps", app),
+          ]
+        : [
+            execBinaryArgv(manager, "turbo", ["run", "dev", "--filter", app]),
+            worktreePath,
+          ];
+
+      const childProcess: ResultPromise = execa(argv.command, argv.args, {
+        cwd,
+        env: envVars,
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
 
       childProcess.stdout?.on("data", (data: Buffer) => {
         const text = data.toString();
@@ -477,6 +493,7 @@ export class ProcessService {
     databaseUrl: string,
     dbEnvVarName: string = "DATABASE_URL",
     devCommand?: string,
+    packageManager?: string | null,
   ): Promise<void> {
     await this.stopProcess(environmentId, app);
     await this.startProcess(
@@ -487,6 +504,7 @@ export class ProcessService {
       databaseUrl,
       dbEnvVarName,
       devCommand,
+      packageManager,
     );
   }
 

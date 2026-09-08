@@ -85,6 +85,7 @@ export const runCommand = new Command()
         env.database?.url ?? "",
         env.project?.dbEnvVarName ?? "DATABASE_URL",
         parseJsonObject<Record<string, string>>(env.project?.devCommands) ?? {},
+        env.project?.packageManager ?? null,
       );
 
       const stop = async () => {

@@ -47,6 +47,7 @@ const appRunContext = (env: EnvWithRelations, app: string) => {
     originalPort: (parseJsonObject<Record<string, number>>(
       env.project?.appPorts,
     ) ?? {})[app],
+    packageManager: env.project?.packageManager ?? null,
   };
 };
 
@@ -155,6 +156,7 @@ psCommand
         context.databaseUrl,
         context.dbEnvVarName,
         context.devCommand,
+        context.packageManager,
       );
 
       // The proxy forwards the app's original port to this one, the same way
@@ -243,6 +245,7 @@ psCommand
         context.databaseUrl,
         context.dbEnvVarName,
         context.devCommand,
+        context.packageManager,
       );
       spinner.succeed(colors.green(`${app} restarted on :${context.port}`));
 

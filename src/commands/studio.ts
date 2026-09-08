@@ -7,6 +7,10 @@ import { EnvironmentService } from "../services/index.js";
 import { prisma } from "../db/index.js";
 import { startSpinner, failCommand } from "../lib/json-output.js";
 import { DevflowError } from "../lib/errors.js";
+import {
+  resolvePackageManager,
+  execBinaryArgv,
+} from "../lib/package-manager.js";
 
 export const studioCommand = new Command()
   .name("studio")
@@ -58,19 +62,25 @@ export const studioCommand = new Command()
       console.log();
       console.log(colors.dim("Press Ctrl+C to stop"));
 
+      const manager = await resolvePackageManager(
+        env.worktreePath,
+        env.project?.packageManager,
+      );
+      const studio = execBinaryArgv(manager, "prisma", [
+        "studio",
+        "--port",
+        options.port,
+      ]);
+
       try {
-        execFileSync(
-          "pnpm",
-          ["exec", "prisma", "studio", "--port", options.port],
-          {
-            cwd: dirname(schemaPath),
-            env: {
-              ...process.env,
-              DATABASE_URL: env.database.url,
-            },
-            stdio: "inherit",
+        execFileSync(studio.command, studio.args, {
+          cwd: dirname(schemaPath),
+          env: {
+            ...process.env,
+            DATABASE_URL: env.database.url,
           },
-        );
+          stdio: "inherit",
+        });
       } catch {
         // User pressed Ctrl+C.
       }

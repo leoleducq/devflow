@@ -41,7 +41,7 @@ scratch state directory (see Safety below).
 ## Safety rules
 
 **`run`, `provision`, `create` and `start` do real things.** They start Docker
-containers, allocate ports, run `pnpm install` in a worktree and spawn dev
+containers, allocate ports, install a worktree's dependencies and spawn dev
 servers. They are not dry by default and they are slow. Do not run them to
 "check something compiles".
 
