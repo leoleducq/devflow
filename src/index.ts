@@ -20,6 +20,12 @@ import { proxyCommand } from "./commands/proxy.js";
 import { herdrCommand } from "./commands/herdr.js";
 import { killZombiesCommand } from "./commands/kill-zombies.js";
 import { dbCommand } from "./commands/db.js";
+import { psCommand } from "./commands/ps.js";
+import { logsCommand } from "./commands/logs.js";
+import { diffCommand, historyCommand } from "./commands/diff.js";
+import { promoteCommand } from "./commands/promote.js";
+import { statusCommand } from "./commands/status.js";
+import { templateCommand } from "./commands/template.js";
 import { envFilesCommand } from "./commands/env-files.js";
 import { skillCommand } from "./commands/skill.js";
 import { setupAgentsCommand } from "./commands/setup-agents.js";
@@ -72,16 +78,22 @@ const COMMAND_GROUPS: Array<[string, Array<[string, string]>]> = [
     "Every day",
     [
       ["run", "Run this environment's dev servers"],
+      ["status", "The active environment and what is running"],
       ["list", "List environments (alias: ls)"],
-      ["db", "Open lazysql on this environment's database"],
+      ["ps", "List, start, stop and restart individual dev servers"],
+      ["logs", "What the dev servers printed"],
+      ["db", "Open lazysql, run SQL, take snapshots"],
       ["studio", "Open Prisma Studio on it"],
     ],
   ],
   [
     "Environments",
     [
-      ["create", "New worktree, ports, database and deps for a branch"],
+      ["create", "New worktree, ports, database and deps for a branch or PR"],
       ["provision", "Turn an existing checkout into an environment"],
+      ["promote", "Give a lite environment its ports and database"],
+      ["diff", "What this environment changed against its base"],
+      ["history", "The commits it added on top of its base"],
       ["start", "Start a stopped environment"],
       ["stop", "Stop it, keeping everything"],
       ["teardown", "Release its database and ports, keep the checkout"],
@@ -94,6 +106,7 @@ const COMMAND_GROUPS: Array<[string, Array<[string, string]>]> = [
     "Projects and config",
     [
       ["project", "Register, inspect and configure projects"],
+      ["template", "Scaffold new projects from a template repository"],
       ["config", "Read and change DevFlow's global settings"],
     ],
   ],
@@ -166,6 +179,13 @@ program.addCommand(proxyCommand);
 program.addCommand(herdrCommand);
 program.addCommand(killZombiesCommand);
 program.addCommand(dbCommand);
+program.addCommand(psCommand);
+program.addCommand(logsCommand);
+program.addCommand(diffCommand);
+program.addCommand(historyCommand);
+program.addCommand(promoteCommand);
+program.addCommand(statusCommand);
+program.addCommand(templateCommand);
 program.addCommand(envFilesCommand);
 program.addCommand(skillCommand);
 program.addCommand(setupAgentsCommand);
