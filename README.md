@@ -135,13 +135,15 @@ A checkout registered with `devflow create --lite` or `devflow provision --lite`
 
 Also: `template list\|add\|remove\|new <name> [template]` (scaffold a project from a template repo, optionally creating the GitHub repo with `--github`), `proxy` (port-forwarding daemon), `studio <env>` (Prisma Studio), `kill-zombies` (orphaned next/turbo/tsx/vite processes), `herdr sync`, `completion <shell>`.
 
-`project set` writes every field, so a CLI-only setup is never missing anything: `--apps`, `--default-apps`, `--app-ports web:3000,api:3005`, `--dev-commands`, `--default-base-branch`, `--db-env-var-name`, `--db-docker-image`, `--default-seed`, `--source-database-url` and the Linear fields. `--app-ports` matters most — the proxy and the `.env` port rewriting both depend on it; `devflow init` fills it in from your `dev` scripts, `.env.example` and `docker-compose.yml`, and `project inspect --apply` re-detects it later. Global settings (`config set <field> <value>`): `portRangeStart`, `portRangeSize`, `dbDefaultPort`, `dbSeedStrategy`, `worktreeLocation`, `dockerNetwork`, `dockerVolumePrefix`.
+`project set` writes every field, so a CLI-only setup is never missing anything: `--apps`, `--default-apps`, `--app-ports web:3000,api:3005`, `--dev-commands`, `--default-base-branch`, `--db-env-var-name`, `--db-docker-image`, `--default-seed`, `--source-database-url`, `--package-manager` and the Linear fields. `--app-ports` matters most — the proxy and the `.env` port rewriting both depend on it; `devflow init` fills it in from your `dev` scripts, `.env.example` and `docker-compose.yml`, and `project inspect --apply` re-detects it later. Global settings (`config set <field> <value>`): `portRangeStart`, `portRangeSize`, `dbDefaultPort`, `dbSeedStrategy`, `worktreeLocation`, `dockerNetwork`, `dockerVolumePrefix`.
 
 ## How it works
 
 **Ports and `.env`.** Each app draws one port from a configurable range (`portRangeStart` 3000, `portRangeSize` 100), recorded per environment so two never collide. Every `.env` in the main checkout is copied into the worktree with the database variable repointed, `PORT=` set, and every `http://localhost:<original>` rewritten. `devflow run` regenerates them before starting, because agents copy `.env` files around.
 
 **Seeding** (`--seed`, or the project's `--default-seed`). `copy-main` dumps your source database (`--source-database-url`) and restores it; `fresh` runs your Prisma migrations and seed onto an empty one; `snapshot:<name>` restores a dump `devflow db snapshot <name>` wrote earlier into `~/.devflow/snapshots` — a name with a `/` is taken as a path instead, so a dump can live next to the code that needs it. Missing snapshots are rejected up front, not after five minutes of provisioning. `pg_dump` and `psql` run inside Docker at the source server's own major version, so host client versions never mismatch. A project with neither a source database nor a Prisma schema gets an empty database, which is often exactly right.
+
+**Package managers.** pnpm, npm, yarn (classic and berry) and bun all work, and each is driven with its own spelling of install, run-a-script and run-a-workspace-script. DevFlow works out which one a project uses from the `packageManager` field in its root `package.json`, then the lock file next to it (`pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`, `bun.lockb`), then npm. Pin it when the guess is wrong — `devflow project set <name> --package-manager <pnpm|npm|yarn|bun>`, also settable at registration and re-detected by `project inspect --apply`; unset shows as `auto-detected` in `project get`. `devflow doctor` names the manager each project needs and fails only if that one binary is missing.
 
 **State.** One SQLite file: `$DEVFLOW_HOME/devflow.db`, else `$XDG_DATA_HOME/devflow/devflow.db`, else `~/.devflow/devflow.db`. Created and migrated on first use; there is no setup step. Your projects' own data lives in the Postgres containers, never there.
 
@@ -170,9 +172,9 @@ You get a workspace per project, status and ports as sidebar tokens, new worktre
 
 ## Requirements
 
-**Node.js 20+** and **git**, plus **Docker** for environment databases (LITE environments work without it). Optional: `lazysql` for `devflow db` (`--url` and `db query` work without it), `gh` for `create --pr` and `project prs`, `psql` for querying a database by hand, [herdr](https://herdr.dev). Installing runs `prisma generate`, which builds a platform-specific query engine, so the first install needs network access. `devflow doctor` reports what is missing; `npx @iziatask/devflow doctor` tries it without installing.
+**Node.js 20+** and **git**, plus **Docker** and **the project's own package manager** for FULL environments (LITE environments need neither). Optional: `lazysql` for `devflow db` (`--url` and `db query` work without it), `gh` for `create --pr` and `project prs`, `psql` for querying a database by hand, [herdr](https://herdr.dev). Installing runs `prisma generate`, which builds a platform-specific query engine, so the first install needs network access. `devflow doctor` reports what is missing; `npx @iziatask/devflow doctor` tries it without installing.
 
-**Known limitations.** Developed and tested on **macOS**; Windows is not supported. FULL environments install dependencies and start dev servers with **pnpm**. Detection is best on turborepo-style monorepos (`apps/*/package.json`, `.env.example`, `docker-compose.yml`); other layouts register fine, you just fill more in with `project set`. Port rewriting in `.env` files covers `PORT=` and `localhost:<port>` URLs — a bare `WEB_PORT=3000` is left alone.
+**Known limitations.** Developed and tested on **macOS**; Windows is not supported. Detection is best on turborepo-style monorepos (`apps/*/package.json`, `.env.example`, `docker-compose.yml`); other layouts register fine, you just fill more in with `project set`. Port rewriting in `.env` files covers `PORT=` and `localhost:<port>` URLs — a bare `WEB_PORT=3000` is left alone.
 
 ## Contributing
 
@@ -182,7 +184,7 @@ npm install && npm run build && npm run check-types
 node bin/devflow.js --help
 ```
 
-`run`, `provision`, `create` and `start` do real things — containers, ports, `pnpm install` — so point `DEVFLOW_HOME` at a scratch path while developing (`DEVFLOW_HOME=/tmp/scratch node bin/devflow.js list`), and test `setup-agents` with `--dry-run` or a fake `HOME`. See [AGENTS.md](AGENTS.md) for the layout and conventions.
+`run`, `provision`, `create` and `start` do real things — containers, ports, dependency installs — so point `DEVFLOW_HOME` at a scratch path while developing (`DEVFLOW_HOME=/tmp/scratch node bin/devflow.js list`), and test `setup-agents` with `--dry-run` or a fake `HOME`. See [AGENTS.md](AGENTS.md) for the layout and conventions.
 
 The Prisma client is generated at install time rather than shipped, because the query engine is a platform-specific binary — hence `prisma` as a runtime dependency, `prisma/` inside the package, and a `postinstall`.
 
