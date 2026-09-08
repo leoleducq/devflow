@@ -22,8 +22,8 @@ async function prerequisites(): Promise<Check[]> {
     }),
     await checkTool({
       command: "pnpm",
-      required: false,
-      hint: "Used to install dependencies inside worktrees",
+      required: true,
+      hint: "DevFlow installs worktree dependencies and runs dev servers with pnpm; install it from https://pnpm.io/installation",
     }),
   ];
 
@@ -74,7 +74,9 @@ export const initCommand = new Command()
       if (checks.some(c => c.level === "fail")) {
         console.log();
         console.log(
-          chalk.red("Install the missing tools above, then run `devflow init` again."),
+          chalk.red(
+            "Install the missing tools above, then run `devflow init` again.",
+          ),
         );
         process.exit(1);
       }
@@ -96,18 +98,14 @@ export const initCommand = new Command()
       console.log(
         `  ${chalk.dim("provision this checkout")}   devflow provision`,
       );
-      console.log(
-        `  ${chalk.dim("run its dev servers")}       devflow run`,
-      );
+      console.log(`  ${chalk.dim("run its dev servers")}       devflow run`);
       console.log(
         `  ${chalk.dim("review what was detected")}  devflow project get ${project.name}`,
       );
       console.log(
         `  ${chalk.dim("connect Linear")}            devflow project linear ${project.name}`,
       );
-      console.log(
-        `  ${chalk.dim("check the whole setup")}     devflow doctor`,
-      );
+      console.log(`  ${chalk.dim("check the whole setup")}     devflow doctor`);
       console.log();
     } catch (error) {
       console.error(

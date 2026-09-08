@@ -153,7 +153,10 @@ async function checkOrphanContainers(): Promise<Check> {
       "--format",
       "{{.Names}}",
     ]);
-    names = stdout.split("\n").map(s => s.trim()).filter(Boolean);
+    names = stdout
+      .split("\n")
+      .map(s => s.trim())
+      .filter(Boolean);
   } catch {
     return {
       name: "containers",
@@ -202,8 +205,8 @@ export const doctorCommand = new Command()
       await checkDocker(),
       await checkTool({
         command: "pnpm",
-        required: false,
-        hint: "Needed to install dependencies in worktrees and run prisma in them",
+        required: true,
+        hint: "DevFlow installs worktree dependencies and runs dev servers with pnpm; install it from https://pnpm.io/installation",
       }),
       await checkTool({
         command: "herdr",

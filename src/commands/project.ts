@@ -10,7 +10,10 @@ import {
   describeProject,
 } from "../lib/project-fields.js";
 import type { ProjectField } from "../lib/project-fields.js";
-import { registerProject, inspectForRegistration } from "../lib/register-project.js";
+import {
+  registerProject,
+  inspectForRegistration,
+} from "../lib/register-project.js";
 
 export const projectCommand = new Command()
   .name("project")
@@ -31,8 +34,12 @@ projectCommand
       });
 
       console.log();
-      console.log(chalk.green(`Project ${chalk.bold(project.name)} registered`));
-      console.log(chalk.dim(`Inspect it with: devflow project get ${project.name}`));
+      console.log(
+        chalk.green(`Project ${chalk.bold(project.name)} registered`),
+      );
+      console.log(
+        chalk.dim(`Inspect it with: devflow project get ${project.name}`),
+      );
     } catch (error) {
       spinner.stop();
       console.error(
@@ -120,8 +127,12 @@ projectCommand
         );
       }
       console.log();
+      // The flags are kebab-case while the fields above print camelCase, so
+      // point at `set --help` rather than inviting `--dbEnvVarName`.
       console.log(
-        chalk.dim(`Change one with: devflow project set ${project.name} --<field> <value>`),
+        chalk.dim(
+          `Change one with: devflow project set ${project.name} --<flag> <value>   (flags: devflow project set --help)`,
+        ),
       );
     } catch (error) {
       console.error(
@@ -141,10 +152,7 @@ const setCommand = projectCommand
 // One --flag per editable column, described from a single source of truth.
 for (const field of Object.keys(PROJECT_FIELDS) as ProjectField[]) {
   const spec = PROJECT_FIELDS[field];
-  setCommand.option(
-    `--${spec.flag} ${spec.placeholder}`,
-    spec.description,
-  );
+  setCommand.option(`--${spec.flag} ${spec.placeholder}`, spec.description);
 }
 
 setCommand.action(async (name: string, options: Record<string, unknown>) => {
@@ -302,7 +310,9 @@ projectCommand
         ),
       );
       console.log(
-        chalk.dim(`List its issues with: devflow project issues ${project.name}`),
+        chalk.dim(
+          `List its issues with: devflow project issues ${project.name}`,
+        ),
       );
     } catch (error) {
       console.error(
