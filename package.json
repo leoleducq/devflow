@@ -1,5 +1,5 @@
 {
-  "name": "devflow-cli",
+  "name": "@iziatask/devflow",
   "version": "0.1.0",
   "description": "Runnable environments for git worktrees: seeded Postgres, allocated ports, generated .env files and dev servers, one per branch.",
   "keywords": [
@@ -14,7 +14,7 @@
     "coding-agents"
   ],
   "license": "MIT",
-  "author": "Léo Leducq",
+  "author": "L\u00e9o Leducq",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/leoleducq/devflow.git"

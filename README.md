@@ -7,7 +7,7 @@ files that point anywhere useful, or a dev server. DevFlow gives it all four —
 one isolated environment per branch, several at a time, without them colliding.
 
 ```bash
-npm install -g devflow-cli
+npm install -g @iziatask/devflow
 cd ~/code/myapp
 devflow init          # detect the project, register it
 devflow provision     # give this checkout ports, a database, .env files
@@ -17,8 +17,8 @@ devflow run           # dev servers, in the foreground
 ## Install
 
 ```bash
-npm install -g devflow-cli     # the usual way; gives you the `devflow` binary
-npx devflow-cli doctor         # try it without installing
+npm install -g @iziatask/devflow     # the usual way; gives you the `devflow` binary
+npx @iziatask/devflow doctor         # try it without installing
 npm install -g github:leoleducq/devflow   # straight from git
 ```
 
