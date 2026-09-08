@@ -18,6 +18,12 @@ import { GitHubService } from "./github-service.js";
 import { environmentLogFile } from "./process-service.js";
 import { HerdrService } from "./herdr-service.js";
 import { PortlessService } from "./portless-service.js";
+import {
+  resolvePackageManager,
+  installArgv,
+  execBinaryArgv,
+  missingManagerMessage,
+} from "../lib/package-manager.js";
 
 export type EnvironmentKind = "FULL" | "LITE";
 
@@ -75,8 +81,9 @@ const PROVISION_LOCK = join(devflowHome(), "locks", "provision");
 const PROVISION_LOCK_STALE_MS = 30 * 60 * 1000;
 
 /**
- * Provisioning is heavy (pnpm install, a Postgres seed): several at once
- * saturate the disk and Docker. Run them one after the other, machine-wide.
+ * Provisioning is heavy (a dependency install, a Postgres seed): several at
+ * once saturate the disk and Docker. Run them one after the other,
+ * machine-wide.
  */
 async function withProvisionLock<T>(work: () => Promise<T>): Promise<T> {
   await fs.ensureDir(dirname(PROVISION_LOCK));
@@ -336,7 +343,7 @@ export class EnvironmentService {
           emit({ type: "step", id: "install", status: "skip" });
         } else {
           emit({ type: "step", id: "install", status: "start" });
-          await this.installDependencies(worktreePath);
+          await this.installDependencies(worktreePath, project);
           emit({ type: "step", id: "install", status: "done" });
         }
         emit({ type: "step", id: "env", status: "skip" });
@@ -824,23 +831,23 @@ export class EnvironmentService {
     const config = await this.configService.getOrCreateConfig();
     const seedStrategy =
       params.seedStrategy ?? project.defaultSeed ?? config.dbSeedStrategy;
+    const prismaTarget = {
+      worktreePath,
+      packageManager: project.packageManager,
+      database: dbRecord,
+    };
     if (seedStrategy === "COPY_MAIN") {
       const sourceDatabaseUrl = project.sourceDatabaseUrl;
       if (sourceDatabaseUrl) {
-        await this.dockerService.seedDatabase(
-          { worktreePath, database: dbRecord },
-          "COPY_MAIN",
-          { sourceDatabaseUrl },
-        );
+        await this.dockerService.seedDatabase(prismaTarget, "COPY_MAIN", {
+          sourceDatabaseUrl,
+        });
       }
       // Apply pending migrations from the branch on top of the copied database
-      await this.dockerService.applyMigrations({
-        worktreePath,
-        database: dbRecord,
-      });
+      await this.dockerService.applyMigrations(prismaTarget);
     } else {
       await this.dockerService.seedDatabase(
-        { worktreePath, database: dbRecord },
+        prismaTarget,
         seedStrategy as "COPY_MAIN" | "FRESH_MIGRATE" | "SNAPSHOT",
         { snapshotPath: params.snapshotPath },
       );
@@ -848,32 +855,52 @@ export class EnvironmentService {
     emit({ type: "step", id: "seed", status: "done" });
   }
 
-  private async installDependencies(worktreePath: string): Promise<void> {
+  /**
+   * Install the worktree's dependencies with whatever package manager the
+   * project uses, then make it runnable: the Prisma client, and the workspace
+   * packages the apps import through their `dist`.
+   */
+  private async installDependencies(
+    worktreePath: string,
+    project: Project,
+  ): Promise<void> {
+    const manager = await resolvePackageManager(
+      worktreePath,
+      project.packageManager,
+    );
+
+    const install = installArgv(manager);
     try {
-      await execa("pnpm", ["install"], { cwd: worktreePath });
+      await execa(install.command, install.args, { cwd: worktreePath });
     } catch (error) {
       if ((error as { code?: string }).code === "ENOENT") {
         throw new Error(
-          "pnpm is not on PATH. DevFlow installs a worktree's dependencies with pnpm; " +
-            "install it (https://pnpm.io/installation), or provision with --skip-install " +
-            "and install them yourself.",
+          missingManagerMessage(manager, "installs a worktree's dependencies"),
         );
       }
       throw error;
     }
+
     const databasePath = join(worktreePath, "packages", "database");
     if (await fs.pathExists(databasePath)) {
-      await execa("pnpm", ["prisma", "generate"], { cwd: databasePath });
+      const generate = execBinaryArgv(manager, "prisma", ["generate"]);
+      await execa(generate.command, generate.args, { cwd: databasePath });
     }
+
     // Workspace packages consumed through their `dist` (the main checkout
     // has them from an old build; a fresh worktree has nothing). Turbo's
     // cache makes this near-free after the first environment.
     if (await fs.pathExists(join(worktreePath, "turbo.json"))) {
-      await execa("pnpm", ["turbo", "run", "build", "--filter=./packages/*"], {
-        cwd: worktreePath,
-      }).catch(() => {
-        // Not every package builds; a failure here must not block the env.
-      });
+      const build = execBinaryArgv(manager, "turbo", [
+        "run",
+        "build",
+        "--filter=./packages/*",
+      ]);
+      await execa(build.command, build.args, { cwd: worktreePath }).catch(
+        () => {
+          // Not every package builds; a failure here must not block the env.
+        },
+      );
     }
   }
 
