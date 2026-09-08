@@ -7,6 +7,10 @@ import { checkTool, which } from "../lib/checks.js";
 import type { Check, CheckLevel } from "../lib/checks.js";
 import { printJson } from "../lib/json-output.js";
 import { table as tableLines } from "../lib/table.js";
+import {
+  resolvePackageManager,
+  installUrl,
+} from "../lib/package-manager.js";
 
 const MIN_NODE_MAJOR = 20;
 
@@ -118,6 +122,23 @@ async function checkProjects(): Promise<Check[]> {
         };
       }
 
+      // The package manager a project needs is a per-project fact: a bun repo
+      // is not broken because pnpm is missing, and a pnpm repo is not fine
+      // because npm happens to be installed.
+      const manager = await resolvePackageManager(
+        project.path,
+        project.packageManager,
+      );
+      const source = project.packageManager ? "pinned" : "detected";
+      if (!(await which(manager))) {
+        return {
+          name: `project ${project.name}`,
+          level: "fail",
+          detail: `${project.path} — ${manager} (${source}) not on PATH`,
+          hint: `Install ${manager} (${installUrl(manager)}), or pin another one with \`devflow project set ${project.name} --package-manager <pm>\``,
+        };
+      }
+
       const missing: string[] = [];
       if (!project.appPorts) missing.push("appPorts");
       if (!project.devCommands) missing.push("devCommands");
@@ -126,7 +147,7 @@ async function checkProjects(): Promise<Check[]> {
         return {
           name: `project ${project.name}`,
           level: "warn",
-          detail: `${project.path} — no ${missing.join(", ")}`,
+          detail: `${project.path} — ${manager}, no ${missing.join(", ")}`,
           hint: `The proxy and .env port rewriting need appPorts; run \`devflow project inspect ${project.name}\``,
         };
       }
@@ -134,7 +155,7 @@ async function checkProjects(): Promise<Check[]> {
       return {
         name: `project ${project.name}`,
         level: "ok",
-        detail: project.path,
+        detail: `${project.path} — ${manager} (${source})`,
       };
     }),
   );
@@ -205,11 +226,6 @@ export const doctorCommand = new Command()
         hint: "DevFlow drives git worktrees; install git",
       }),
       await checkDocker(),
-      await checkTool({
-        command: "pnpm",
-        required: true,
-        hint: "DevFlow installs worktree dependencies and runs dev servers with pnpm; install it from https://pnpm.io/installation",
-      }),
       await checkTool({
         command: "herdr",
         required: false,

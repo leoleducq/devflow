@@ -8,6 +8,7 @@ import {
   registerProject,
   registrationAnswers,
   REGISTRATION_FLAGS,
+  expandProjectPath,
 } from "../lib/register-project.js";
 import { skillIsInstalled } from "../lib/skill-presence.js";
 import {
@@ -17,12 +18,20 @@ import {
   startSpinner,
 } from "../lib/json-output.js";
 import { table as tableLines } from "../lib/table.js";
+import {
+  detectPackageManager,
+  installUrl,
+} from "../lib/package-manager.js";
 
 /**
  * Only what `init` itself needs. The full sweep — orphaned containers, the
  * state of every registered project — belongs to `devflow doctor`.
  */
-async function prerequisites(): Promise<Check[]> {
+async function prerequisites(projectPath: string): Promise<Check[]> {
+  // Which package manager matters is a property of the repo being registered,
+  // not of the machine: only the one this project uses has to be installed.
+  const manager = await detectPackageManager(projectPath);
+
   const checks: Check[] = [
     await checkTool({
       command: "git",
@@ -30,9 +39,10 @@ async function prerequisites(): Promise<Check[]> {
       hint: "DevFlow provisions git worktrees; install git first",
     }),
     await checkTool({
-      command: "pnpm",
+      command: manager,
+      label: `package manager (${manager})`,
       required: true,
-      hint: "DevFlow installs worktree dependencies and runs dev servers with pnpm; install it from https://pnpm.io/installation",
+      hint: `This project uses ${manager}; DevFlow installs its dependencies and runs its dev servers with it. Install it from ${installUrl(manager)}`,
     }),
   ];
 
@@ -98,7 +108,9 @@ Examples:
 
       console.log();
       console.log(colors.bold.underline("Prerequisites"));
-      const checks = await prerequisites();
+      const checks = await prerequisites(
+        expandProjectPath(pathArg ?? process.cwd()),
+      );
       const rendered = tableLines(
         checks.map(check => [
           SYMBOL[check.level],
