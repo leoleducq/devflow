@@ -254,23 +254,30 @@ export class DockerDatabaseService {
     return 16;
   }
 
+  /**
+   * Directory holding the worktree's Prisma schema, or null when the project
+   * does not use Prisma. Plenty of projects don't: they get an empty database
+   * and manage their own schema, which is not an error.
+   */
+  private async findPrismaSchemaDir(
+    worktreePath: string,
+  ): Promise<string | null> {
+    const candidates = [
+      join(worktreePath, "packages", "database", "prisma", "schema.prisma"),
+      join(worktreePath, "prisma", "schema.prisma"),
+    ];
+
+    for (const candidate of candidates) {
+      if (await fs.pathExists(candidate)) return join(candidate, "..");
+    }
+    return null;
+  }
+
   async applyMigrations(env: {
     worktreePath: string;
     database: { url: string };
   }): Promise<void> {
-    const possiblePaths = [
-      join(env.worktreePath, "packages", "database", "prisma", "schema.prisma"),
-      join(env.worktreePath, "prisma", "schema.prisma"),
-    ];
-
-    let schemaDir: string | undefined;
-    for (const path of possiblePaths) {
-      if (await fs.pathExists(path)) {
-        schemaDir = join(path, "..");
-        break;
-      }
-    }
-
+    const schemaDir = await this.findPrismaSchemaDir(env.worktreePath);
     if (!schemaDir) return;
 
     try {
@@ -287,22 +294,11 @@ export class DockerDatabaseService {
     worktreePath: string;
     database: { url: string };
   }): Promise<void> {
-    const possiblePaths = [
-      join(env.worktreePath, "packages", "database", "prisma", "schema.prisma"),
-      join(env.worktreePath, "prisma", "schema.prisma"),
-    ];
-
-    let schemaDir: string | undefined;
-    for (const path of possiblePaths) {
-      if (await fs.pathExists(path)) {
-        schemaDir = join(path, "..");
-        break;
-      }
-    }
-
-    if (!schemaDir) {
-      throw new Error("Prisma schema not found in worktree");
-    }
+    const schemaDir = await this.findPrismaSchemaDir(env.worktreePath);
+    // No Prisma in this project: the container is up and empty, which is all
+    // FRESH_MIGRATE can mean here. Failing would make the strategy unusable
+    // for every project that manages its schema some other way.
+    if (!schemaDir) return;
 
     await execa("pnpm", ["exec", "prisma", "migrate", "deploy"], {
       cwd: schemaDir,
