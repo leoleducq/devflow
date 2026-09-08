@@ -17,11 +17,11 @@
   "author": "Léo Leducq",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/leoleducq/devflow-cli.git"
+    "url": "git+https://github.com/leoleducq/devflow.git"
   },
-  "homepage": "https://github.com/leoleducq/devflow-cli#readme",
+  "homepage": "https://github.com/leoleducq/devflow#readme",
   "bugs": {
-    "url": "https://github.com/leoleducq/devflow-cli/issues"
+    "url": "https://github.com/leoleducq/devflow/issues"
   },
   "type": "module",
   "bin": {
