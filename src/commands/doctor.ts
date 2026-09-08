@@ -6,6 +6,7 @@ import { prisma, databaseFile, devflowHome } from "../db/index.js";
 import { checkTool, which } from "../lib/checks.js";
 import type { Check, CheckLevel } from "../lib/checks.js";
 import { printJson } from "../lib/json-output.js";
+import { PortlessService } from "../services/index.js";
 import { table as tableLines } from "../lib/table.js";
 import {
   resolvePackageManager,
@@ -213,6 +214,62 @@ async function checkOrphanContainers(): Promise<Check> {
   };
 }
 
+/**
+ * portless, but only for the users who asked for it: a project has to have
+ * opted in before an absent portless is worth a word. The caveats it reports
+ * are the ones that actually change the URLs — Node 24, and whether the proxy
+ * got :443 or a high port every URL then has to carry.
+ */
+async function checkPortless(): Promise<Check[]> {
+  const projects = await prisma.project.findMany({
+    where: { portless: true },
+    select: { name: true },
+  });
+  if (projects.length === 0) return [];
+
+  const names = projects.map(p => p.name).join(", ");
+  const status = await new PortlessService().status();
+
+  if (!status.installed) {
+    return [
+      {
+        name: "portless",
+        level: "warn",
+        detail: `${status.reason ?? "not installed"} — ${names} fall back to plain ports`,
+        hint: "Install it with `npm i -g portless` (it needs Node 24+), or turn it off with `devflow project set <name> --portless false`",
+      },
+    ];
+  }
+
+  if (!status.running) {
+    return [
+      {
+        name: "portless",
+        level: "warn",
+        detail: `v${status.version ?? "?"}, proxy not running — ${names} fall back to plain ports`,
+        hint: "Start it with `portless proxy start` (:443 needs sudo; without it the proxy takes a high port and every URL carries it)",
+      },
+    ];
+  }
+
+  // :443 is the whole point — a URL with no port. Anything else works, but
+  // the port is in every URL, so say so rather than let it surprise someone.
+  const onDefaultPort =
+    status.proxyPort === 443 || status.proxyPort === undefined;
+  return [
+    {
+      name: "portless",
+      level: onDefaultPort ? "ok" : "warn",
+      detail: onDefaultPort
+        ? `v${status.version ?? "?"}, proxy on :443 — ${names}`
+        : `v${status.version ?? "?"}, proxy on :${status.proxyPort} — ${names} get URLs carrying that port`,
+      hint: onDefaultPort
+        ? undefined
+        : "Restart it with sudo to bind :443 for URLs with no port: `sudo portless proxy start`",
+    },
+  ];
+}
+
 export const doctorCommand = new Command()
   .name("doctor")
   .description("Check prerequisites, the database and the registered projects")
@@ -250,6 +307,7 @@ export const doctorCommand = new Command()
       }),
       ...(await checkDatabase()),
       ...(await checkProjects()),
+      ...(await checkPortless()),
       await checkOrphanContainers(),
     ];
 

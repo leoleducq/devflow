@@ -4,9 +4,12 @@ import { prisma, parseJsonArray } from "../db/index.js";
 import {
   ConfigService,
   EnvironmentService,
+  PortlessService,
   ProcessService,
+  appUrl,
   sortedPorts,
 } from "../services/index.js";
+import type { PortlessRoute } from "../services/index.js";
 import { resolveEnvironment } from "../lib/resolve-environment.js";
 import { failCommand, printJson } from "../lib/json-output.js";
 import { printPairs, printTable } from "../lib/table.js";
@@ -69,6 +72,17 @@ Examples:
     }
   });
 
+/**
+ * The portless routes, when this environment's project opted in. `[]` for
+ * everyone else, so a project without portless never shells out at all.
+ */
+async function routesFor(
+  usesPortless: boolean,
+): Promise<PortlessRoute[]> {
+  if (!usesPortless) return [];
+  return new PortlessService().listRoutes().catch(() => []);
+}
+
 /** One environment: its resources, its dev servers, whether it is active. */
 async function reportEnvironment(
   env: Awaited<ReturnType<typeof resolveEnvironment>>,
@@ -77,6 +91,9 @@ async function reportEnvironment(
 ): Promise<void> {
   const processes = await new ProcessService(prisma).getProcesses(env.id);
   const running = processes.filter(p => p.status === "RUNNING");
+  const routes = await routesFor(env.project?.portless ?? false);
+  const urlOf = (app: string, port: number): string =>
+    appUrl({ app, port, environment: env.name, project: env.project, routes });
 
   if (json) {
     printJson({
@@ -93,9 +110,11 @@ async function reportEnvironment(
         : null,
       databaseUrl: env.database?.url ?? null,
       apps: parseJsonArray(env.apps),
+      portless: env.project?.portless ?? false,
       ports: sortedPorts(env.ports).map(p => ({
         app: p.appName,
         port: p.port,
+        url: urlOf(p.appName, p.port),
       })),
       processes: processes.map(p => ({
         app: p.appName,
@@ -139,10 +158,18 @@ async function reportEnvironment(
     console.log();
     for (const port of sortedPorts(env.ports)) {
       const proc = processes.find(p => p.appName === port.appName);
+      const url = urlOf(port.appName, port.port);
+      // Behind a portless URL the port is still worth showing: it is what
+      // the dev server bound, and what to curl when the proxy misbehaves.
+      const behind = url.startsWith("https")
+        ? ` ${colors.dim(`→ :${port.port}`)}`
+        : "";
       console.log(
-        `  ${colors.bold(port.appName.padEnd(8))} ${colors.cyan(
-          `http://localhost:${port.port}`,
-        )} ${proc?.status === "RUNNING" ? colors.green("running") : colors.dim("stopped")}`,
+        `  ${colors.bold(port.appName.padEnd(8))} ${colors.cyan(url)}${behind} ${
+          proc?.status === "RUNNING"
+            ? colors.green("running")
+            : colors.dim("stopped")
+        }`,
       );
     }
   }

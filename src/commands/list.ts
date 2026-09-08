@@ -1,7 +1,12 @@
 import { Command } from "commander";
 import { colors } from "../lib/colors.js";
 import { prisma } from "../db/index.js";
-import { EnvironmentService } from "../services/index.js";
+import {
+  EnvironmentService,
+  PortlessService,
+  appUrl,
+} from "../services/index.js";
+import type { PortlessRoute } from "../services/index.js";
 import { failCommand, printJson, redact } from "../lib/json-output.js";
 import { printTable } from "../lib/table.js";
 
@@ -25,8 +30,38 @@ export const listCommand = new Command()
 
       const environments = await environmentService.listEnvironments(projectId);
 
+      // One `portless list` for the whole table, and only when some project
+      // on it actually opted in.
+      const routes: PortlessRoute[] = environments.some(
+        env => env.project?.portless,
+      )
+        ? await new PortlessService().listRoutes().catch(() => [])
+        : [];
+      const urlOf = (
+        env: (typeof environments)[number],
+        app: string,
+        port: number,
+      ): string =>
+        appUrl({
+          app,
+          port,
+          environment: env.name,
+          project: env.project,
+          routes,
+        });
+
       if (options.json) {
-        printJson(redact(environments));
+        printJson(
+          redact(
+            environments.map(env => ({
+              ...env,
+              ports: env.ports.map(p => ({
+                ...p,
+                url: urlOf(env, p.appName, p.port),
+              })),
+            })),
+          ),
+        );
         return;
       }
 
@@ -60,7 +95,11 @@ export const listCommand = new Command()
           env.database ? `:${env.database.port}` : colors.dim("-"),
           env.ports.length > 0
             ? env.ports
-                .map(p => `${p.appName}:${colors.cyan(String(p.port))}`)
+                .map(p =>
+                  env.project?.portless
+                    ? colors.cyan(urlOf(env, p.appName, p.port))
+                    : `${p.appName}:${colors.cyan(String(p.port))}`,
+                )
                 .join(" ")
             : colors.dim("-"),
         ]),
